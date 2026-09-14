@@ -579,11 +579,11 @@ hook that notifies the ESP32 over Wi-Fi. Pinouts vary between board revisions an
 
 ## 6. 3D-printed case
 
-The [`case/`](case/) folder holds the STL files this build prints: the **"ASRock BC-250 case
+The [`printed-case/`](printed-case/) folder holds the STL files this build prints: the **"ASRock BC-250 case
 Steam Machine" by MrLarva** ([Thingiverse](https://www.thingiverse.com/thing:7304454), also on
 [Printables](https://www.printables.com/model/1618501-asrock-bc-250-case-steam-machine-by-mrlarva)
 and [MakerWorld](https://makerworld.com/en/models/2453965-asrock-bc-250-case-steam-machine-by-mrlarva)),
-licensed **CC BY-SA** (see [`case/LICENSE.txt`](case/LICENSE.txt)). It is a remix of
+licensed **CC BY-SA** (see [`printed-case/LICENSE.txt`](printed-case/LICENSE.txt)). It is a remix of
 [Arthrimus's console-style BC-250 case](https://www.thingiverse.com/thing:7165679) with a larger
 compartment for a Flex-ATX power supply, ventilation holes under it, a round front button, and a
 bracket for 120 mm fans. Not our design; all credit to MrLarva and Arthrimus.
@@ -657,4 +657,4 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
 ## License
 
 Code and documentation in this repository are MIT licensed (see [`LICENSE`](LICENSE)); the same terms
-apply to the ESP32 firmware and to `bc250-tune`. The case STLs in [`case/`](case/) are CC BY-SA by MrLarva.
+apply to the ESP32 firmware and to `bc250-tune`. The case STLs in [`printed-case/`](printed-case/) are CC BY-SA by MrLarva.
