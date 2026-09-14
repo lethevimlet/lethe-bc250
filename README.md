@@ -38,7 +38,8 @@ The whole build, in order. Each step links to the section with the details.
    optional.
 2. **Board prep** — take the lid off the heatsink and renew the paste and pads
    ([§2.1](#21-remove-the-heatsink-lid)), cut the tabs off the power plugs and fit the cable
-   ([§2.2](#22-fit-the-power-cable)). Disable IOMMU in the BIOS.
+   ([§2.2](#22-fit-the-power-cable-and-the-auto-power-on-jumper)). Set the AUTO_PWRON1 jumper to auto power-on and disable IOMMU
+   in the BIOS ([§3.1](#31-before-the-os)).
 3. **OS** — install stock Bazzite (deck), then rebase to the 62fixolab `-40cu` image and reboot
    ([§3](#3-install-bazzite-and-the-62fixolab-bc-250-image)).
 4. **Tune** — clone this repo on the BC-250 and run `sudo ./bc250-tune install`; optionally add the
@@ -61,7 +62,7 @@ Everything used in this build, with the exact parts where it matters.
 |------|-------|
 | **AMD BC-250 mining card** | Cyan Skillfish / Oberon APU: 6 of 8 Zen 2 cores and 24 of 40 RDNA2 CUs enabled from the factory, 16 GB GDDR6 shared between CPU and GPU. Stock ASRock BIOS P3.00. Needs an NVMe SSD (M.2 2280) for the OS. |
 | **PSU 500 W** (Metalfish 500 W) | Standard ATX. The BC-250 draws ~125–180 W at the extremes, all from the 12 V rail through the two Micro-Fit connectors. |
-| **Power cable: 8-pin EPS12V → 2× Micro-Fit 8-pin** — **REQUIRED, fire safety** | [moddiy ASRock BC-250 cable](https://www.moddiy.com/products/6837/Standard-8-Pin-EPS12V-to-2-x-MicroFit-8-Pin-Cable-for-ASRock-BC250.html). The board has two Micro-Fit 8-pin power inputs. Feeding it through a single PCIe 8-pin plug forces the whole 200–250 W peak draw down one 18 AWG lead set, which is beyond what that gauge is rated for and heats the cable and connector. This adapter takes the PSU's EPS12V (CPU) 8-pin, whose four 12 V conductors are rated for it, and splits it across both board inputs. Do not run the board on a PCIe cable alone. The plugs' tabs must be cut for them to seat; see [§2.2](#22-fit-the-power-cable). |
+| **Power cable: 8-pin EPS12V → 2× Micro-Fit 8-pin** — **REQUIRED, fire safety** | [moddiy ASRock BC-250 cable](https://www.moddiy.com/products/6837/Standard-8-Pin-EPS12V-to-2-x-MicroFit-8-Pin-Cable-for-ASRock-BC250.html). The board has two Micro-Fit 8-pin power inputs. Feeding it through a single PCIe 8-pin plug forces the whole 200–250 W peak draw down one 18 AWG lead set, which is beyond what that gauge is rated for and heats the cable and connector. This adapter takes the PSU's EPS12V (CPU) 8-pin, whose four 12 V conductors are rated for it, and splits it across both board inputs. Do not run the board on a PCIe cable alone. The plugs' tabs must be cut for them to seat; see [§2.2](#22-fit-the-power-cable-and-the-auto-power-on-jumper). |
 | **Soft power control** | **ESP32-C3 SuperMini** (recommended: tiny, USB-C, runs happily from the PSU's 5 V standby rail; any ESP32 works), [16 mm momentary push button](https://www.amazon.es/dp/B07Z4PHKJX), PC817 optocoupler, resistors (220 Ω and 1 kΩ), hookup wire, solder, heatshrink tube. Full parts list and build in [§5](#5-soft-power-control-with-an-esp32). |
 | **Cooling** | 2× **ARCTIC P12 PWM PST** 120 mm fans on the double fan shroud (recommended over a single fan), plus a **PWM Y-splitter** so both run from the board's one fan header (the P12 PST daisy-chains too). **Thermalright TFX** thermal paste for the APU (a full tube's worth is not excessive: the die sits ~1 mm below the heatsink base, §2.1) and new **2 mm thermal pads** for the GDDR6 and VRMs; the factory ones are dry. |
 | **Case** (optional) | Access to a 3D printer for the case in [§6](#6-3d-printed-case), plus 12× [M3 heat-set inserts](https://es.aliexpress.com/item/1005005920120561.html) and 12× [M3 × 6 mm screws](https://es.aliexpress.com/item/1005008082257314.html). |
@@ -102,10 +103,19 @@ way, so it comes off.
   it and the die would run hot. Spread a thick, full-coverage layer; a high-viscosity paste like TFX
   holds that thickness without pumping out. Do not rely on the pads to set the gap.
 
-### 2.2 Fit the power cable
+### 2.2 Fit the power cable and the auto power-on jumper
 
-Use the EPS12V → 2× Micro-Fit adapter from §1. A single PCIe 8-pin cable on 18 AWG wire carrying the
-board's 200–250 W peaks is a fire risk; this is not optional.
+While the board is out, set the **AUTO_PWRON1** jumper to pins 1–2 (auto power-on) so the board boots
+whenever the PSU comes up; see §3.1.
+
+> [!CAUTION]
+> **Fire hazard. Use the EPS12V → 2× Micro-Fit cable from §1; this is not optional.**
+> The BC-250 has two Micro-Fit 8-pin power inputs. Feeding the board through a single PCIe 8-pin plug
+> puts its entire draw through one set of 18 AWG wires. With the tuning in §4 enabled (40 CU, 8 cores,
+> higher GPU clock) that draw peaks at **200–250 W**, beyond what 18 AWG is rated for, and the wire and
+> connector heat up. The EPS12V (CPU) 8-pin has four 12 V conductors rated for it; the adapter splits
+> them across both board inputs. Never run the board on a PCIe cable alone, and never enable the
+> unlocks on one.
 
 Fitting it: the plugs' retention tabs foul the board, so **cut the tabs off** the two Micro-Fit
 plugs before they will seat. Orientation as in the photo, both plugs side by side on the board's edge
@@ -126,8 +136,11 @@ The BC-250 has no power button header, so read the whole section before starting
 * **BIOS.** This build runs the **stock ASRock P3.00 BIOS**. The 62fixolab images recommend a modded
   BIOS with "512 MB dynamic VRAM" and IOMMU disabled; the VRAM split is instead set from Linux with
   `bc250memcfg` (§4), which works on the stock BIOS. **IOMMU must be disabled** in BIOS.
-* **Power switch.** The board auto-boots when 12 V appears. Without the ESP32 circuit in §5, put a
-  latching switch on the ATX PS_ON pin (green wire, pin 16, to ground) or jumper it permanently.
+* **Auto power-on jumper.** Set the board's **AUTO_PWRON1** jumper to the auto-power-on position
+  (pins 1–2). The BC-250 then boots by itself as soon as 12 V appears, which is what both the ESP32
+  circuit (§5) and a plain PS_ON switch rely on; there is no power button header to press otherwise.
+* **Power switch.** Without the ESP32 circuit in §5, put a latching switch on the ATX PS_ON pin
+  (green wire, pin 16, to ground) or jumper it permanently.
 * **Boot media.** A USB stick with the Bazzite installer and a keyboard.
 
 ### 3.2 Install stock Bazzite (deck variant)
@@ -183,6 +196,11 @@ its own [README](decky-bc250-tune/README.md) with every option; this is the summ
 
 Photographed on the TV with 40 CU and 8 cores switched on: the GPU clock shows `~500 MHz` (estimated
 from voltage, see §4.2), 8 cores at 51 °C, 35 W package power, 6144 MB VRAM at 1920x1080.
+
+> [!CAUTION]
+> `CU=40`, `CORES=8` and `GPU_MAX=2000` raise the board's draw to 200–250 W peaks. Only enable them
+> with the EPS12V → 2× Micro-Fit power cable fitted (§2.2). On a single PCIe 8-pin cable this is a
+> fire hazard.
 
 | Switch | What it does | Applies |
 |--------|--------------|---------|
