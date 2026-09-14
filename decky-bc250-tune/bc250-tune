@@ -1,0 +1,504 @@
+#!/usr/bin/env bash
+# bc250-tune — one-file tuning switchboard for the AMD BC-250 running Bazzite
+# (62fixolab "Latest-Bazzite-AMD-BC-250-Patched-Images").
+#
+# Toggles, from one config file (/etc/bc250-tune/config) or the interactive menu:
+#   UMA_SIZE  VRAM/RAM split written to CMOS via bc250memcfg (fanoush)      -> reboot
+#   GPU_MIN / GPU_MAX  cyan-skillfish-governor-smu frequency range (MHz)     -> live
+#   CU        24 (stock) or 40 (all WGPs routed via bc250-cu-live-manager)   -> live
+#   CORES     6 (stock) or 8 (SMU msg 0x98 core-mask unlock, GabriWar)      -> warm reboot
+#   HUD       on/off: minimal one-line MangoHud layout (Gaming Mode preset 1) -> next game launch
+#   RES       Gaming Mode (gamescope) output resolution, e.g. 1920x1080 / native -> session restart
+#
+# Everything is idempotent: re-run `bc250-tune apply` any time; a systemd unit re-applies the
+# volatile parts (CU table, core mask, CMOS check) at every boot.
+#
+# Usage: bc250-tune {status [--json] | apply [--boot] | set KEY VALUE... | menu | hud-stats |
+#                    reboot | restart-session | install | uninstall}
+#
+# SPDX-License-Identifier: MIT
+set -uo pipefail
+
+# Callers such as Decky Loader (a PyInstaller bundle) export LD_LIBRARY_PATH pointing at their own
+# bundled libs, which breaks systemctl/umr with "version OPENSSL_x not found". Always run clean.
+unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+VERSION="1.0.2"
+CONF_DIR=/etc/bc250-tune
+CONF="$CONF_DIR/config"
+STATE_DIR=/run/bc250-tune
+BIN=/usr/local/bin/bc250-tune
+MEMCFG=/usr/local/bin/bc250memcfg
+MEMCFG_SRC=https://github.com/fanoush/bc250_memcfg.git
+SRC_DIR=/var/lib/bc250-tune/src
+GOV_CONF=/etc/cyan-skillfish-governor-smu/config.toml
+GOV_SVC=cyan-skillfish-governor-smu.service
+UNIT=bc250-tune.service
+UNIT_PATH=/etc/systemd/system/$UNIT
+GPU_PCI=/sys/bus/pci/devices/0000:01:00.0
+IMAGE_CU_SVC=bc250-cu-live-manager.service
+MARK="# bc250-tune managed"
+
+# ---------------------------------------------------------------------------------------------
+# defaults (used when a key is missing from the config file)
+# ---------------------------------------------------------------------------------------------
+D_UMA_SIZE=6144
+D_GPU_MIN=500
+D_GPU_MAX=1850
+D_CU=24
+D_CORES=6
+D_HUD=on
+D_RES=1920x1080
+D_TOTAL_OFFSET_W=45      # HUD "TOTAL" = SoC package power + this (GDDR6, VRM loss, fan, SSD)
+D_TUNE_USER=             # empty = auto-detect the desktop user
+
+# ---------------------------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------------------------
+die()  { echo "bc250-tune: error: $*" >&2; exit 1; }
+warn() { echo "bc250-tune: warning: $*" >&2; }
+log()  { echo "bc250-tune: $*"; }
+is_root() { [ "$(id -u)" -eq 0 ]; }
+need_root() { is_root || die "this command must run as root (sudo)"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+load_conf() {
+    UMA_SIZE=$D_UMA_SIZE GPU_MIN=$D_GPU_MIN GPU_MAX=$D_GPU_MAX CU=$D_CU CORES=$D_CORES
+    HUD=$D_HUD RES=$D_RES TOTAL_OFFSET_W=$D_TOTAL_OFFSET_W TUNE_USER=$D_TUNE_USER
+    # shellcheck disable=SC1090
+    [ -r "$CONF" ] && . "$CONF"
+}
+
+write_conf() {
+    need_root
+    mkdir -p "$CONF_DIR"
+    cat > "$CONF" <<EOF
+# bc250-tune configuration — edit and run: sudo bc250-tune apply   (or use: sudo bc250-tune menu)
+UMA_SIZE=$UMA_SIZE          # VRAM carve-out in MB (>=256, 16 MB steps). CMOS; needs a reboot.
+GPU_MIN=$GPU_MIN            # GPU governor floor, MHz (500 = lowest safe-point, saves ~10 W idle)
+GPU_MAX=$GPU_MAX            # GPU governor ceiling, MHz (image default 1850; 2000 = hotter)
+CU=$CU                      # 24 = stock, 40 = route all WGPs (live, re-applied at boot)
+CORES=$CORES                # 6 = stock, 8 = SMU core unlock (needs a WARM reboot; a cold boot reverts)
+HUD=$HUD                    # on = install the one-line MangoHud layout as Gaming Mode overlay level 1
+RES=$RES                    # Gaming Mode output, WxH or "native"
+TOTAL_OFFSET_W=$TOTAL_OFFSET_W   # HUD TOTAL = SoC watts + this estimate of the rest of the board
+TUNE_USER=$TUNE_USER        # desktop user whose MangoHud/gamescope files are managed (auto if empty)
+EOF
+}
+
+# The desktop user: explicit config > SUDO_USER > owner of the gamescope session > uid 1000.
+detect_user() {
+    local u="${TUNE_USER:-}"
+    [ -n "$u" ] || u="${SUDO_USER:-}"
+    [ -n "$u" ] && [ "$u" != root ] || u=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3!="root"{print $3; exit}')
+    [ -n "$u" ] || u=$(getent passwd 1000 | cut -d: -f1)
+    [ -n "$u" ] || die "cannot determine the desktop user; set TUNE_USER in $CONF"
+    T_USER=$u
+    T_UID=$(id -u "$u")
+    T_HOME=$(getent passwd "$u" | cut -d: -f6)
+}
+
+as_user() {   # run a command as the desktop user with its session bus
+    sudo -u "$T_USER" XDG_RUNTIME_DIR="/run/user/$T_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$T_UID/bus" "$@"
+}
+
+hwmon_by_name() { for h in /sys/class/hwmon/hwmon*; do [ "$(cat "$h/name" 2>/dev/null)" = "$1" ] && { echo "$h"; return; }; done; }
+
+# ---------------------------------------------------------------------------------------------
+# UMA (VRAM/RAM split) — CMOS via bc250memcfg
+# ---------------------------------------------------------------------------------------------
+uma_cmos() { is_root && [ -x "$MEMCFG" ] && "$MEMCFG" 2>/dev/null | sed -n 's/^UMA_SIZE=//p' | head -1; }
+uma_live_mb() { local b; b=$(cat "$GPU_PCI"/mem_info_vram_total 2>/dev/null || cat /sys/class/drm/card*/device/mem_info_vram_total 2>/dev/null | head -1); echo $(( ${b:-0} / 1048576 )); }
+
+build_memcfg() {
+    have gcc && have make && have git || die "gcc/make/git missing; cannot build bc250memcfg"
+    mkdir -p "$SRC_DIR"
+    if [ ! -d "$SRC_DIR/bc250_memcfg/.git" ]; then
+        git clone -q "$MEMCFG_SRC" "$SRC_DIR/bc250_memcfg" || die "git clone of bc250_memcfg failed (network?)"
+    fi
+    ( cd "$SRC_DIR/bc250_memcfg" && make -s ) || die "building bc250memcfg failed"
+    install -m 0755 "$SRC_DIR/bc250_memcfg/bc250memcfg" "$MEMCFG"
+    log "built and installed $MEMCFG"
+}
+
+uma_apply() {
+    [ -x "$MEMCFG" ] || build_memcfg
+    [ "$UMA_SIZE" -ge 256 ] 2>/dev/null || die "UMA_SIZE must be a number >= 256"
+    local cur; cur=$(uma_cmos)
+    if [ "$cur" = "$UMA_SIZE" ]; then
+        log "UMA: CMOS already $cur MB (live VRAM $(uma_live_mb) MB)"
+    else
+        "$MEMCFG" UMA_SIZE "$UMA_SIZE" >/dev/null || die "bc250memcfg write failed"
+        log "UMA: CMOS $cur -> $(uma_cmos) MB; takes effect at next boot"
+        NEED_REBOOT+=("UMA $UMA_SIZE MB")
+    fi
+    [ "$(uma_live_mb)" = "$UMA_SIZE" ] || { [ "$cur" = "$UMA_SIZE" ] && NEED_REBOOT+=("UMA $UMA_SIZE MB (CMOS set, live is $(uma_live_mb) MB)"); }
+}
+
+# ---------------------------------------------------------------------------------------------
+# GPU governor frequency range
+# ---------------------------------------------------------------------------------------------
+gov_get() {  # prints "min max"
+    awk '/^\[frequency-range\]/{s=1;next} /^\[/{s=0} s&&/^min *=/{gsub(/[^0-9]/,"",$3);mn=$3} s&&/^max *=/{gsub(/[^0-9]/,"",$3);mx=$3} END{print mn+0, mx+0}' "$GOV_CONF" 2>/dev/null
+}
+# Current GPU clock. After the 8-core unlock the SMU metrics table (pp_dpm_sclk, hwmon freq1,
+# amdgpu_pm_info) reports garbage like "45Mhz" while the GPU clocks normally. The governor still sets
+# voltage along its [[safe-points]] curve, so when the reading is impossible (< lowest safe-point)
+# the clock is estimated from VDDGFX by interpolating that curve; GOV_MHZ_EST=1 marks the estimate.
+GOV_MHZ_EST=0
+gov_est_mhz_from_mv() {
+    local pts; pts=$(awk '/^\[\[safe-points\]\]/{s=1;next} s&&/^frequency/{f=$3} s&&/^voltage/{print f, $3; s=0}' "$GOV_CONF" 2>/dev/null)
+    [ -n "$pts" ] || pts=$'500 700\n1000 800\n1175 850\n1500 900\n1600 910\n1700 920\n1850 930\n2000 960'
+    awk -v mv="$1" 'BEGIN{n=0} {f[n]=$1; v[n]=$2; n++} END{ if(mv<=v[0]){print f[0]; exit}
+        for(i=1;i<n;i++) if(mv<=v[i]){ printf "%d\n", f[i-1]+(f[i]-f[i-1])*(mv-v[i-1])/(v[i]-v[i-1]); exit }
+        print f[n-1] }' <<<"$pts"
+}
+# gov_read_mhz sets GOV_MHZ and GOV_MHZ_EST in the caller's shell (no subshell, so the flag survives).
+gov_read_mhz() {
+    local m mv; GOV_MHZ_EST=0; GOV_MHZ=0
+    m=$(sed -n 's/^[0-9]*: *\([0-9]*\)Mhz \*.*/\1/p' "$GPU_PCI/pp_dpm_sclk" 2>/dev/null | head -1)
+    # the bogus values wander anywhere (9…1171 MHz seen), so decide by state, not by value:
+    # with 8 cores enabled the table is unusable -> estimate from voltage; otherwise trust the table
+    if [ "$(cores_visible)" -lt 8 ] && [ -n "$m" ] && [ "$m" -ge 300 ]; then GOV_MHZ=$m; return; fi
+    mv=$(cat "$(hwmon_by_name amdgpu)/in0_input" 2>/dev/null)
+    if [ -n "$mv" ]; then GOV_MHZ_EST=1; GOV_MHZ=$(gov_est_mhz_from_mv "$mv"); else GOV_MHZ=${m:-0}; fi
+}
+gov_cur_mhz() { gov_read_mhz; echo "$GOV_MHZ"; }
+
+gov_apply() {
+    [ -f "$GOV_CONF" ] || { warn "governor config $GOV_CONF not found; skipping GPU range"; return; }
+    [ "$GPU_MIN" -ge 200 ] && [ "$GPU_MAX" -le 2400 ] && [ "$GPU_MIN" -le "$GPU_MAX" ] 2>/dev/null || die "GPU_MIN/GPU_MAX invalid ($GPU_MIN/$GPU_MAX)"
+    read -r cmin cmax <<<"$(gov_get)"
+    if [ "$cmin" = "$GPU_MIN" ] && [ "$cmax" = "$GPU_MAX" ]; then
+        log "GPU: governor range already $cmin-$cmax MHz"; return
+    fi
+    cp -n "$GOV_CONF" "$GOV_CONF.bc250-tune.orig" 2>/dev/null
+    local tmp; tmp=$(mktemp)
+    awk -v mn="$GPU_MIN" -v mx="$GPU_MAX" '
+        /^\[frequency-range\]/ {print; s=1; next}
+        /^\[/ {if(s&&!dm){print "min = " mn}; if(s&&!dx){print "max = " mx}; s=0}
+        s && /^min *=/ {print "min = " mn "    # MHz (bc250-tune)"; dm=1; next}
+        s && /^max *=/ {print "max = " mx "    # MHz (bc250-tune)"; dx=1; next}
+        {print}
+        END {if(s&&!dm)print "min = " mn; if(s&&!dx)print "max = " mx;
+             if(!s&&!dm&&!dx){print ""; print "[frequency-range]"; print "min = " mn; print "max = " mx}}' "$GOV_CONF" > "$tmp"
+    cat "$tmp" > "$GOV_CONF"; rm -f "$tmp"
+    systemctl restart "$GOV_SVC" 2>/dev/null || warn "could not restart $GOV_SVC"
+    log "GPU: governor range $cmin-$cmax -> $GPU_MIN-$GPU_MAX MHz (live)"
+}
+
+# ---------------------------------------------------------------------------------------------
+# Compute units (24 <-> 40) via the image's bc250-cu-live-manager
+# ---------------------------------------------------------------------------------------------
+cu_mgr() {
+    if have bc250-cu-live-manager; then echo bc250-cu-live-manager
+    elif [ -x /usr/share/bc250-40cu/vendor/bc250-cu-live-manager/bc250-cu-live-manager.sh ]; then echo /usr/share/bc250-40cu/vendor/bc250-cu-live-manager/bc250-cu-live-manager.sh
+    fi
+}
+cu_count() {   # live SPI-routed CU count (needs root + umr); falls back to cached state, then 24
+    local m n; m=$(cu_mgr)
+    if is_root && [ -n "$m" ]; then
+        n=$("$m" status 2>/dev/null | sed -n 's/^ *SPI total *: *\([0-9]*\)\/40.*/\1/p' | head -1)
+        [ -n "$n" ] && { mkdir -p "$STATE_DIR"; echo "$n" > "$STATE_DIR/cu"; echo "$n"; return; }
+    fi
+    cat "$STATE_DIR/cu" 2>/dev/null || echo 24
+}
+cu_apply() {
+    local m cur; m=$(cu_mgr)
+    [ -n "$m" ] || { warn "bc250-cu-live-manager not found (not a -40cu image?); skipping CU"; return; }
+    case "$CU" in 24|40) ;; *) die "CU must be 24 or 40";; esac
+    # our unit owns the boot-time table; make sure the image's own service does not fight it
+    systemctl is-enabled "$IMAGE_CU_SVC" >/dev/null 2>&1 && { systemctl disable --now "$IMAGE_CU_SVC" >/dev/null 2>&1; log "CU: disabled $IMAGE_CU_SVC (bc250-tune manages the table now)"; }
+    cur=$(cu_count)
+    if [ "$cur" = "$CU" ]; then log "CU: already $cur/40 routed"; return; fi
+    local i
+    for i in 1 2 3; do
+        if [ "$CU" = 40 ]; then "$m" --yes enable all >/dev/null 2>&1; else "$m" --yes stock-dispatch >/dev/null 2>&1; fi
+        cur=$(cu_count); [ "$cur" = "$CU" ] && break; sleep 2
+    done
+    [ "$cur" = "$CU" ] && log "CU: $CU/40 routed (live)" || warn "CU: wanted $CU, manager reports $cur"
+}
+
+# ---------------------------------------------------------------------------------------------
+# CPU cores (6 <-> 8) — SMU mailbox message 0x98 sets the core-enable mask at SMN 0x0115A870.
+# Sequence from GabriWar/bc250-core-cu-unlock (MIT). Volatile: warm reboot to enumerate, cold boot reverts.
+# ---------------------------------------------------------------------------------------------
+PCI_HOST=00:00.0; SMN_IDX=0xB8; SMN_DAT=0xBC
+MASK_REG=0115A870; RSP_REG=03B10A80; ARG0_REG=03B10A88; ARG1_REG=03B10A8C; MSG_REG=03B10A20
+
+smn_read() { setpci -s $PCI_HOST "$SMN_IDX.L=$1" 2>/dev/null; setpci -s $PCI_HOST "$SMN_DAT.L" 2>/dev/null; }
+cores_mask() { is_root && have setpci || { echo ""; return; }; local s v; s=$(setpci -s $PCI_HOST $SMN_IDX.L 2>/dev/null); v=$(smn_read $MASK_REG); setpci -s $PCI_HOST "$SMN_IDX.L=$s" 2>/dev/null; printf '%d' "0x${v:-0}" 2>/dev/null; }
+cores_visible() { grep '^core id' /proc/cpuinfo | sort -u | wc -l; }
+popcount() { local n=$1 c=0; while [ "$n" -gt 0 ]; do c=$(( c + (n & 1) )); n=$(( n >> 1 )); done; echo $c; }
+
+cores_unlock() {
+    local s mask resp i
+    s=$(setpci -s $PCI_HOST $SMN_IDX.L); mask=$(cores_mask)
+    if [ "$mask" -eq 255 ]; then log "CORES: mask already 0xFF"; setpci -s $PCI_HOST "$SMN_IDX.L=$s"; return 0; fi
+    if [ "$(popcount "$mask")" -ne 6 ]; then setpci -s $PCI_HOST "$SMN_IDX.L=$s"; die "CORES: refusing, unexpected core mask $(printf 0x%02X "$mask")"; fi
+    [ "$mask" -ne 119 ] && warn "CORES: this board reports mask $(printf 0x%02X "$mask") (upstream validated 0x77); a cold boot always reverts"
+    setpci -s $PCI_HOST "$SMN_IDX.L=$RSP_REG" "$SMN_DAT.L=00000000" "$SMN_IDX.L=$ARG0_REG" "$SMN_DAT.L=$MASK_REG" \
+                        "$SMN_IDX.L=$ARG1_REG" "$SMN_DAT.L=00000000" "$SMN_IDX.L=$MSG_REG" "$SMN_DAT.L=00000098" 2>/dev/null
+    for i in $(seq 1 200); do resp=$(printf '%d' "0x$(smn_read $RSP_REG)" 2>/dev/null); [ "${resp:-0}" -eq 1 ] && break; [ "${resp:-0}" -ge 252 ] && break; done
+    mask=$(cores_mask); setpci -s $PCI_HOST "$SMN_IDX.L=$s"
+    [ "$mask" -eq 255 ] || die "CORES: unlock failed (SMU response ${resp:-none}); mask unchanged, nothing broken"
+    log "CORES: mask set to 0xFF (SMU ok); all 8 cores appear after a WARM reboot (bc250-tune reboot)"
+}
+cores_apply() {
+    have setpci || { warn "setpci missing; skipping CORES"; return; }
+    case "$CORES" in 6|8) ;; *) die "CORES must be 6 or 8";; esac
+    local mask vis; mask=$(cores_mask); vis=$(cores_visible)
+    if [ "$CORES" = 8 ]; then
+        [ "$mask" -eq 255 ] || cores_unlock
+        [ "$vis" -ge 8 ] || NEED_REBOOT+=("8 cores (warm reboot)")
+    else
+        if [ "$mask" -eq 255 ] || [ "$vis" -ge 8 ]; then
+            warn "CORES: 6 requested but mask is 0xFF/${vis} cores visible; only a COLD boot (power off) reverts the SMU mask"
+            NEED_COLD_BOOT=1
+        else log "CORES: stock ($vis cores)"; fi
+    fi
+}
+
+# ---------------------------------------------------------------------------------------------
+# MangoHud one-line HUD
+# ---------------------------------------------------------------------------------------------
+hud_line_conf() {   # $1 = extra lines (position/toggle for MangoHud.conf)
+    cat <<EOF
+$MARK — one line: "· 47 FPS | GPU °C MHz  CPU °C  SoC W  TOTAL ~W  FAN rpm  CU/cores"
+# Rules (MangoHud 0.8, legacy_layout=0): every listed option becomes a "|" column, even x=0 ones,
+# so only fps and exec are listed; fps_text replaces the engine name; frametime=0 must be LAST.
+legacy_layout=0
+horizontal=1
+hud_compact=1
+hud_no_margin=1
+fps
+fps_text=·
+exec=$BIN hud-stats
+font_size=16
+background_alpha=0.25
+round_corners=6
+$1
+frametime=0
+EOF
+}
+hud_stats() {   # printed by MangoHud's exec= every refresh; must be cheap and never fail
+    local amd k gpu mhz soc cpu fan socw cu cores
+    amd=$(hwmon_by_name amdgpu); k=$(hwmon_by_name k10temp)
+    gpu=$(cat "$amd/temp1_input" 2>/dev/null); soc=$(cat "$amd/power1_average" 2>/dev/null); cpu=$(cat "$k/temp1_input" 2>/dev/null)
+    gov_read_mhz; mhz=$GOV_MHZ; fan=$(cat /sys/devices/platform/nct6687.*/hwmon/hwmon*/fan2_input 2>/dev/null | head -1)
+    socw=$(( ${soc:-0} / 1000000 )); cu=$(cat "$STATE_DIR/cu" 2>/dev/null || echo 24); cores=$(cores_visible)
+    local mhzs; [ "$GOV_MHZ_EST" = 1 ] && mhzs="~${mhz:-0}MHz" || mhzs="${mhz:-0}MHz"
+    printf "GPU %2d°C %8s  CPU %2d°C  SoC %3dW  TOTAL ~%3dW  FAN %4d  %dCU %dC\n" \
+        "$(( ${gpu:-0} / 1000 ))" "$mhzs" "$(( ${cpu:-0} / 1000 ))" "$socw" "$(( socw + TOTAL_OFFSET_W ))" "${fan:-0}" "$cu" "$cores"
+}
+hud_is_on() { grep -qs "^$MARK" "$T_HOME/.config/MangoHud/presets.conf"; }
+hud_apply() {
+    local d="$T_HOME/.config/MangoHud"
+    case "$HUD" in
+    on)
+        install -d -o "$T_USER" -g "$T_USER" "$d"
+        { echo "[preset 1]"; hud_line_conf ""; } > "$d/presets.conf"
+        if [ ! -e "$d/MangoHud.conf" ] || grep -qs "^$MARK" "$d/MangoHud.conf"; then
+            hud_line_conf $'position=top-right\ntoggle_hud=Shift_R+F12' > "$d/MangoHud.conf"; chown "$T_USER:$T_USER" "$d/MangoHud.conf"
+        fi
+        chown "$T_USER:$T_USER" "$d/presets.conf"
+        log "HUD: installed for $T_USER (Gaming Mode: set Performance Overlay Level to 1)" ;;
+    off)
+        grep -qs "^$MARK" "$d/presets.conf" && rm -f "$d/presets.conf"
+        grep -qs "^$MARK" "$d/MangoHud.conf" && rm -f "$d/MangoHud.conf"
+        log "HUD: custom layout removed (MangoHud built-in presets active)" ;;
+    *) die "HUD must be on or off" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------------------------
+# Gaming Mode resolution (gamescope-session-plus reads ~/.config/environment.d/*.conf)
+# ---------------------------------------------------------------------------------------------
+RES_FILE_REL=.config/environment.d/bc250-tune-gamescope.conf
+res_current() { pgrep -a gamescope 2>/dev/null | grep -o -E '\-W [0-9]+ -H [0-9]+' | head -1 | awk '{print $2"x"$4}'; }
+res_apply() {
+    local f="$T_HOME/$RES_FILE_REL" w h
+    if [ "$RES" = native ]; then
+        [ -e "$f" ] && { rm -f "$f"; log "RES: native (session restart needed)"; NEED_SESSION=1; } || log "RES: native"
+        return
+    fi
+    w=${RES%x*}; h=${RES#*x}
+    [ "$w" -ge 640 ] && [ "$h" -ge 480 ] 2>/dev/null || die "RES must be WxH (e.g. 1920x1080) or native"
+    local want; want=$(printf '%s\nSCREEN_WIDTH=%s\nSCREEN_HEIGHT=%s\nINTERNAL_WIDTH=%s\nINTERNAL_HEIGHT=%s\n' "$MARK" "$w" "$h" "$w" "$h")
+    if [ "$(cat "$f" 2>/dev/null)" = "$want" ]; then
+        [ "$(res_current)" = "$RES" ] && log "RES: $RES (active)" || { log "RES: $RES configured, session runs $(res_current || echo '?')"; NEED_SESSION=1; }
+    else
+        install -d -o "$T_USER" -g "$T_USER" "$(dirname "$f")"; printf '%s\n' "$want" > "$f"; chown "$T_USER:$T_USER" "$f"
+        log "RES: $RES written (takes effect when the Gaming Mode session restarts)"; NEED_SESSION=1
+    fi
+}
+restart_session() {
+    need_root; detect_user
+    local u; u=$(as_user systemctl --user list-units --no-legend 'gamescope-session-plus@*' 2>/dev/null | awk '{print $1; exit}')
+    [ -n "$u" ] || die "no gamescope session unit running for $T_USER"
+    log "restarting $u (this closes Steam and any running game)"; as_user systemctl --user restart "$u"
+}
+
+# ---------------------------------------------------------------------------------------------
+# apply / status / set / menu
+# ---------------------------------------------------------------------------------------------
+NEED_REBOOT=(); NEED_SESSION=0; NEED_COLD_BOOT=0
+cmd_apply() {
+    need_root; load_conf; detect_user; mkdir -p "$STATE_DIR"
+    local boot=0; [ "${1:-}" = "--boot" ] && boot=1
+    uma_apply; gov_apply; cu_apply; cores_apply; hud_apply; res_apply
+    echo "$T_USER" > "$STATE_DIR/user"
+    if [ ${#NEED_REBOOT[@]} -gt 0 ]; then
+        printf '%s\n' "${NEED_REBOOT[@]}" > "$STATE_DIR/reboot-needed"
+        [ $boot = 1 ] || log "REBOOT NEEDED for: ${NEED_REBOOT[*]}  -> sudo bc250-tune reboot"
+    else rm -f "$STATE_DIR/reboot-needed"; fi
+    [ $NEED_COLD_BOOT = 1 ] && echo "cold boot needed (power off) to return to 6 cores" > "$STATE_DIR/coldboot-needed" || rm -f "$STATE_DIR/coldboot-needed"
+    if [ $NEED_SESSION = 1 ]; then echo 1 > "$STATE_DIR/session-restart-needed"; [ $boot = 1 ] || log "Gaming Mode session restart needed for RES -> sudo bc250-tune restart-session (closes games)"
+    else rm -f "$STATE_DIR/session-restart-needed"; fi
+}
+
+json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/["\\]/\\&/g')"; }
+cmd_status() {
+    load_conf; detect_user 2>/dev/null || { T_USER=?; T_HOME=/nonexistent; }
+    local root=0; is_root && root=1
+    read -r gmin gmax <<<"$(gov_get)"
+    local amd k gpu_t cpu_t soc mask vis cu ucmos ulive cur_res hud rb sess cold
+    amd=$(hwmon_by_name amdgpu); k=$(hwmon_by_name k10temp)
+    gpu_t=$(( $(cat "$amd/temp1_input" 2>/dev/null || echo 0) / 1000 )); cpu_t=$(( $(cat "$k/temp1_input" 2>/dev/null || echo 0) / 1000 ))
+    soc=$(( $(cat "$amd/power1_average" 2>/dev/null || echo 0) / 1000000 ))
+    mask=$(cores_mask); vis=$(cores_visible); cu=$(cu_count); ucmos=$(uma_cmos); ulive=$(uma_live_mb); cur_res=$(res_current)
+    hud=off; hud_is_on && hud=on
+    rb=""; [ -r "$STATE_DIR/reboot-needed" ] && rb=$(tr '\n' ';' < "$STATE_DIR/reboot-needed")
+    # session restart is pending only while the running session's mode differs from the config
+    sess=0
+    if [ -n "$cur_res" ]; then
+        if [ "$RES" = native ]; then [ -e "$T_HOME/$RES_FILE_REL" ] && sess=1; else [ "$cur_res" != "$RES" ] && sess=1; fi
+        [ $sess = 0 ] && rm -f "$STATE_DIR/session-restart-needed" 2>/dev/null
+    else [ -e "$STATE_DIR/session-restart-needed" ] && sess=1; fi
+    cold=$([ -e "$STATE_DIR/coldboot-needed" ] && echo 1 || echo 0)
+    local curmhz est; gov_read_mhz; curmhz=$GOV_MHZ; est=$GOV_MHZ_EST
+    if [ "${1:-}" = "--json" ]; then
+        printf '{"version":%s,"root":%s,"user":%s,"uma":{"config":%s,"cmos":%s,"live_mb":%s},"gpu":{"min":%s,"max":%s,"config_min":%s,"config_max":%s,"cur_mhz":%s,"cur_mhz_estimated":%s,"temp":%s},"cu":{"config":%s,"live":%s},"cores":{"config":%s,"mask":%s,"visible":%s},"hud":{"config":%s,"installed":%s},"res":{"config":%s,"session":%s},"power":{"soc_w":%s,"total_w":%s,"cpu_temp":%s},"pending":{"reboot":%s,"session_restart":%s,"cold_boot":%s}}\n' \
+            "$(json_str "$VERSION")" "$root" "$(json_str "$T_USER")" "$UMA_SIZE" "${ucmos:-null}" "$ulive" \
+            "${gmin:-0}" "${gmax:-0}" "$GPU_MIN" "$GPU_MAX" "${curmhz:-0}" "$( [ "$est" = 1 ] && echo true || echo false )" "$gpu_t" \
+            "$CU" "$cu" "$CORES" "${mask:-null}" "$vis" "$(json_str "$HUD")" "$(json_str "$hud")" \
+            "$(json_str "$RES")" "$(json_str "${cur_res:-}")" "$soc" "$(( soc + TOTAL_OFFSET_W ))" "$cpu_t" "$(json_str "$rb")" "$sess" "$cold"
+        return
+    fi
+    echo "bc250-tune $VERSION — config: $CONF   user: $T_USER"
+    printf '  %-10s config %-9s CMOS %-8s live VRAM %s MB\n' UMA "$UMA_SIZE MB" "${ucmos:-n/a}" "$ulive"
+    printf '  %-10s config %-9s governor file %s-%s MHz, now %s%s MHz, %s°C\n' GPU "$GPU_MIN-$GPU_MAX" "${gmin:-?}" "${gmax:-?}" "$( [ "$est" = 1 ] && echo '~' )" "${curmhz:-?}" "$gpu_t"
+    printf '  %-10s config %-9s live %s/40 routed\n' CU "$CU" "$cu"
+    printf '  %-10s config %-9s mask %s, %s cores visible, %s°C\n' CORES "$CORES" "$( [ -n "$mask" ] && printf 0x%02X "$mask" || echo n/a )" "$vis" "$cpu_t"
+    printf '  %-10s config %-9s installed: %s\n' HUD "$HUD" "$hud"
+    printf '  %-10s config %-9s session: %s\n' RES "$RES" "${cur_res:-not running}"
+    printf '  %-10s SoC %s W, TOTAL ~%s W\n' POWER "$soc" "$(( soc + TOTAL_OFFSET_W ))"
+    [ -n "$rb" ] && echo "  PENDING    reboot needed: $rb"
+    [ "$sess" = 1 ] && echo "  PENDING    Gaming Mode session restart needed (RES)"
+    [ "$cold" = 1 ] && echo "  PENDING    cold boot (power off) needed to go back to 6 cores"
+    [ $root = 1 ] || echo "  (run as root for CMOS and live CU readings)"
+}
+
+cmd_set() {
+    need_root; load_conf; local apply=1
+    [ $# -ge 2 ] || die "usage: bc250-tune set KEY VALUE [KEY VALUE ...] [--no-apply]   keys: uma gpu-min gpu-max cu cores hud res"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --no-apply) apply=0; shift; continue ;;
+            uma|UMA_SIZE) UMA_SIZE=$2 ;; gpu-min|GPU_MIN) GPU_MIN=$2 ;; gpu-max|GPU_MAX) GPU_MAX=$2 ;;
+            cu|CU) CU=$2 ;; cores|CORES) CORES=$2 ;; hud|HUD) HUD=$2 ;; res|RES) RES=$2 ;;
+            total-offset|TOTAL_OFFSET_W) TOTAL_OFFSET_W=$2 ;; user|TUNE_USER) TUNE_USER=$2 ;;
+            *) die "unknown key: $1" ;;
+        esac
+        shift 2
+    done
+    write_conf; log "config written"
+    [ $apply = 1 ] && cmd_apply
+}
+
+cmd_menu() {
+    need_root; have whiptail || die "whiptail not installed"
+    while true; do
+        load_conf
+        local st; st=$(cmd_status 2>/dev/null)
+        local choice
+        choice=$(whiptail --title "bc250-tune $VERSION" --menu "$st" 26 96 9 \
+            UMA    "VRAM split: $UMA_SIZE MB (reboot)" \
+            GPUMAX "GPU max clock: $GPU_MAX MHz (live)" \
+            GPUMIN "GPU idle clock: $GPU_MIN MHz (live)" \
+            CU     "Compute units: $CU (live)" \
+            CORES  "CPU cores: $CORES (8 = warm reboot; back to 6 = cold boot)" \
+            HUD    "Custom MangoHud line: $HUD" \
+            RES    "Gaming Mode resolution: $RES (session restart)" \
+            APPLY  "Apply now" \
+            EXTRA  "Restart gaming session / warm reboot" 3>&1 1>&2 2>&3) || break
+        case "$choice" in
+            UMA)    v=$(whiptail --menu "VRAM carve-out (MB). Rest is system RAM (16 GB total)." 20 60 9 512 "" 1024 "" 2048 "" 3072 "" 4096 "" 6144 "(default)" 8192 "(BIOS default)" 10240 "" 12288 "" 3>&1 1>&2 2>&3) && UMA_SIZE=$v ;;
+            GPUMAX) v=$(whiptail --menu "GPU governor max (MHz)" 15 50 5 1500 "cool/quiet" 1700 "" 1850 "image default" 2000 "hot, ~140 W" 3>&1 1>&2 2>&3) && GPU_MAX=$v ;;
+            GPUMIN) v=$(whiptail --menu "GPU governor min / idle (MHz)" 12 50 2 500 "lowest, ~-10 W idle" 1000 "image default" 3>&1 1>&2 2>&3) && GPU_MIN=$v ;;
+            CU)     v=$(whiptail --menu "Compute units (applies live)" 12 60 2 24 "stock" 40 "all WGPs (+30 W, ~+5% games, 1.6x compute)" 3>&1 1>&2 2>&3) && CU=$v ;;
+            CORES)  v=$(whiptail --menu "CPU cores" 12 60 2 6 "stock" 8 "SMU unlock, needs WARM reboot" 3>&1 1>&2 2>&3) && CORES=$v ;;
+            HUD)    v=$(whiptail --menu "Custom one-line MangoHud (Gaming Mode overlay level 1)" 12 60 2 on "" off "" 3>&1 1>&2 2>&3) && HUD=$v ;;
+            RES)    v=$(whiptail --menu "Gaming Mode output resolution" 14 50 4 1920x1080 "" 2560x1440 "" 3840x2160 "" native "panel default" 3>&1 1>&2 2>&3) && RES=$v ;;
+            APPLY)  write_conf; cmd_apply 2>&1 | tee "$STATE_DIR/last-apply.log" >/dev/null; whiptail --title "apply" --textbox "$STATE_DIR/last-apply.log" 20 90; continue ;;
+            EXTRA)  v=$(whiptail --menu "Extra" 12 60 2 SESSION "Restart Gaming Mode session (closes games)" REBOOT "Warm reboot now" 3>&1 1>&2 2>&3) || continue
+                    [ "$v" = SESSION ] && restart_session; [ "$v" = REBOOT ] && cmd_reboot; continue ;;
+        esac
+        write_conf
+    done
+}
+
+cmd_reboot() { need_root; [ -w /sys/kernel/reboot/mode ] && echo warm > /sys/kernel/reboot/mode 2>/dev/null; log "warm reboot"; systemctl reboot; }
+
+# ---------------------------------------------------------------------------------------------
+# install / uninstall
+# ---------------------------------------------------------------------------------------------
+cmd_install() {
+    need_root
+    local src; src=$(readlink -f "$0")
+    [ "$src" != "$BIN" ] && install -m 0755 "$src" "$BIN"
+    load_conf; [ -f "$CONF" ] || { write_conf; log "default config written to $CONF"; }
+    [ -x "$MEMCFG" ] || build_memcfg
+    cat > "$UNIT_PATH" <<EOF
+[Unit]
+Description=bc250-tune: re-apply BC-250 tuning (UMA check, GPU range, CU table, core mask, HUD, resolution)
+After=multi-user.target
+ConditionPathExists=$GPU_PCI
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$BIN apply --boot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload; systemctl enable "$UNIT" >/dev/null 2>&1
+    log "installed $BIN, $UNIT (enabled). Applying config..."
+    cmd_apply
+}
+cmd_uninstall() {
+    need_root; load_conf; detect_user
+    systemctl disable --now "$UNIT" >/dev/null 2>&1; rm -f "$UNIT_PATH"; systemctl daemon-reload
+    HUD=off hud_apply; RES=native res_apply
+    [ -f "$GOV_CONF.bc250-tune.orig" ] && { cp "$GOV_CONF.bc250-tune.orig" "$GOV_CONF"; systemctl restart "$GOV_SVC" 2>/dev/null; log "governor config restored"; }
+    rm -rf "$STATE_DIR"; rm -f "$BIN"
+    log "removed. CMOS UMA value, CU routing and core mask are left as they are (reboot / cold boot to revert)."
+}
+
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
+
+case "${1:-}" in
+    hud-stats)       load_conf; hud_stats ;;
+    status)          cmd_status "${2:-}" ;;
+    apply)           cmd_apply "${2:-}" ;;
+    set)             shift; cmd_set "$@" ;;
+    menu)            cmd_menu ;;
+    reboot)          cmd_reboot ;;
+    restart-session) restart_session ;;
+    install)         cmd_install ;;
+    uninstall)       cmd_uninstall ;;
+    version)         echo "$VERSION" ;;
+    *)               usage; exit 1 ;;
+esac

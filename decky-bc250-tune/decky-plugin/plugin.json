@@ -1,0 +1,11 @@
+{
+  "name": "BC-250 Tune",
+  "author": "bc250-tune contributors",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["bc250", "hardware", "root"],
+    "description": "Toggle AMD BC-250 tuning (40 CU, 8 cores, VRAM split, GPU clocks, HUD, resolution) from the Quick Access menu. Requires bc250-tune.",
+    "image": ""
+  }
+}
