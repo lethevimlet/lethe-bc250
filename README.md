@@ -10,7 +10,7 @@ what one particular build actually uses, so it favours "this works" over "every 
 self-contained: the tuning script, its Decky plugin, the ESP32 firmware and the case STLs are all in
 here.
 
-> **Status:** work in progress. The component list is provisional and will be revised.
+> **Status:** the build is complete and in daily use; the guide is still being polished.
 
 For everything about the board itself (BIOS, pinouts, VRAM, power, kernel, governor), the
 [AMD BC-250 community documentation](https://elektricm.github.io/amd-bc250-docs/) by elektricM is the
@@ -55,7 +55,7 @@ The whole build, in order. Each step links to the section with the details.
 
 ## 1. Components
 
-Provisional; will be refined as the build settles.
+Everything used in this build, with the exact parts where it matters.
 
 | Part | Notes |
 |------|-------|
