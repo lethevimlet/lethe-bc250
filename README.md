@@ -45,7 +45,7 @@ The whole build, in order. Each step links to the section with the details.
 4. **Tune** — clone this repo on the BC-250 and run `sudo ./bc250-tune install`; optionally add the
    Decky plugin for the Steam Quick Access menu ([§4](#4-tuning-bc250-tune)). Set the Performance
    Overlay slider to level 1 for the HUD.
-5. **Power button** — build the ESP32 optocoupler loom, flash the firmware with the Arduino IDE, and
+5. **Power button** — build the ESP32 optocoupler wiring, flash the firmware with the Arduino IDE, and
    test with the multimeter at each step ([§5](#5-soft-power-control-with-an-esp32)).
 6. **Case** — print the STLs, fit the inserts, mount the two fans on the double shroud, assemble
    ([§6](#6-3d-printed-case)).
@@ -395,7 +395,7 @@ touched.
 In the schematic, GPIO 4 high lights the LED, the phototransistor conducts, PS_ON is pulled to ground
 and the PSU starts. Nothing crosses the dashed isolation barrier except light. Pins 15 and 17 are both ground and join
 inside the PSU; run two wires so they join there, through the supply's own heavy conductors, and not
-through your thin loom. Bridging PC817 pin 2 to pin 3 works electrically and throws that away.
+through your thin wires. Bridging PC817 pin 2 to pin 3 works electrically and throws that away.
 
 ### 5.4 Identifying the PC817
 
@@ -409,7 +409,7 @@ pin 4 faces pin 1. Confirm with a meter in diode mode before soldering:
 
 ### 5.5 The two capsules
 
-There is no circuit board. Both small assemblies live inside heatshrink in the loom, and everything
+There is no circuit board. Both small assemblies live inside heatshrink along the wiring, and everything
 else is bare wire soldered to the ESP32's castellated pads.
 
 * **Capsule 1**: the PC817 with R3 in series with pin 1. Four wires leave it: GPIO 4 in, ground out,
@@ -497,7 +497,7 @@ Notes:
   restarts itself; nothing is written. Power the console off and try again.
 * `BENCH_MODE 1` builds arm OTA whenever Wi-Fi is up, because nothing is powered from the bench.
 * Do not flash over USB with the +5VSB wire connected (see §5.7). OTA has no such restriction, which is
-  the main reason to use it once the loom is finished.
+  the main reason to use it once the wiring is finished.
 
 ### 5.9 Behaviour and the web page
 
