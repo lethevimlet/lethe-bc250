@@ -142,6 +142,8 @@ The BC-250 has no power button header, so read the whole section before starting
 * **Power switch.** Without the ESP32 circuit in §5, put a latching switch on the ATX PS_ON pin
   (green wire, pin 16, to ground) or jumper it permanently.
 * **Boot media.** A USB stick with the Bazzite installer and a keyboard.
+* **No sleep.** Neither suspend (S3 is not reverse-engineered yet; suspend-to-idle hangs) nor
+  hibernation works on the BC-250; always shut down (§7).
 
 ### 3.2 Install stock Bazzite (deck variant)
 
@@ -511,7 +513,8 @@ off), the sense line (`HIGH` while the BC-250 reports alive), and the IP and MAC
 router's DHCP reservation. It polls `/rest/status` every two seconds while the tab is visible.
 
 * A short press when off starts the machine. A short press while running does nothing on purpose:
-  shut down in software so the filesystem is clean.
+  shut down in software so the filesystem is clean. Use Shutdown, not Sleep: sleep and hibernation
+  do not work on the BC-250 (§7), and a sleeping board would leave the PSU on with no way to wake.
 * Hold the button five seconds to force the PSU off. This only arms once the firmware has reached
   RUNNING, which needs the sense line connected.
 * The web page and `/rest/on`, `/rest/off`, `/rest/status` do the same over the network. A web off is
@@ -604,8 +607,11 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
 
 * **Cabling is a fire-safety item.** The BC-250 peaks at 200–250 W on 12 V. Split it over both
   Micro-Fit inputs from an EPS12V cable; never hang the board off one PCIe 8-pin on 18 AWG wire.
-* **Sleep does not work on the BC-250.** The firmware offers no S3, and suspend-to-idle hangs the
-  board. Always use Shutdown; the ESP32 circuit then powers the PSU down by itself.
+* **Sleep and hibernation are not supported.** The BC-250 firmware exposes no S3 state, and the S3
+  sleep path has not been reverse-engineered yet, so there is nothing for the kernel to use; the only
+  option it offers, suspend-to-idle, hangs the board and needs a power cut. Hibernation (S4) is
+  advertised but buggy and is not usable either. Treat the Sleep entry in Steam's power menu as broken:
+  always use **Shutdown**, and let the ESP32 circuit power the PSU down.
 * **The image ships no VRAM tool.** `bc250memcfg` writing the split into CMOS is the way on the stock
   BIOS; the alternative is a modded BIOS.
 * **40 CU is not a gaming upgrade.** Measured by the 40 CU researchers: +4.4 % in a graphics benchmark,
