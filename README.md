@@ -58,7 +58,8 @@ The whole build, in order. Each step links to the section with the details.
    ([§3](#3-install-bazzite-and-the-62fixolab-bc-250-image)).
 4. **Tune** — clone this repo on the BC-250 and run `sudo ./bc250-tune install`; optionally add the
    Decky plugin for the Steam Quick Access menu ([§4](#4-tuning-bc250-tune)). Set the Performance
-   Overlay slider to level 1 for the HUD.
+   Overlay slider to level 1 for the HUD. Treat 40 CU and 8 cores as optional experiments: each board
+   is a silicon lottery.
 5. **Power button** — build the ESP32 optocoupler wiring, flash the firmware with the Arduino IDE, and
    test with the multimeter at each step ([§5](#5-soft-power-control-with-an-esp32)).
 6. **Case** — print the STLs, fit the inserts, mount the two fans on the double shroud, assemble
@@ -215,6 +216,14 @@ from voltage, see §4.2), 8 cores at 51 °C, 35 W package power, 6144 MB VRAM at
 > with the EPS12V → 2× Micro-Fit power cable fitted (§2.2). On a single PCIe 8-pin cable this is a
 > fire hazard.
 
+> [!WARNING]
+> **Silicon lottery.** The 40 CU and 8-core unlocks re-enable hardware that AMD disabled at the
+> factory, and not every board has healthy spare units. Some BC-250s run all 40 CUs and 8 cores for
+> years, others artifact, crash or fail to launch games at 40 CU, or hang after the core unlock. Nothing
+> in this guide can predict which you have. Enable one unlock at a time, test with demanding games and a
+> stress run while watching temperatures in the HUD, and only keep what stays stable. Both unlocks
+> revert easily: `CU=24` is live, and a cold boot (power off) restores 6 cores.
+
 | Switch | What it does | Applies |
 |--------|--------------|---------|
 | `UMA_SIZE` | VRAM / system-RAM split of the 16 GB, written to CMOS with [bc250memcfg](https://github.com/fanoush/bc250_memcfg) (built from source at install). Survives reinstalls; only a CMOS clear resets it. | next reboot |
@@ -255,7 +264,7 @@ level 1 to get the HUD line.
 | VRAM split | 6144 MB VRAM / ~9.6 GB RAM | 1080p never needs 8 GB of VRAM; the RAM is more useful |
 | GPU range | 500–1850 MHz | 1850 is the image default; 500 idle floor drops idle package power from ~41 W to ~32 W |
 | Resolution | 1920x1080 | The GPU is roughly RX 6600 class; 4K is not realistic |
-| CU / cores | toggled from the plugin as needed | 40 CU + 8 cores are worth ~5–12 % in games for ~50 W more |
+| CU / cores | toggled from the plugin as needed | 40 CU + 8 cores are worth ~5–12 % in games for ~50 W more; this particular board is stable with both, yours may not be |
 | HUD | on, overlay level 1 | `· 60 FPS \| GPU 48°C 1300MHz  CPU 54°C  SoC 47W  TOTAL ~92W  FAN 1587  24CU 6C` |
 
 The HUD's `SoC` is the measured APU package power; `TOTAL ~` adds ~45 W for the GDDR6, VRM losses,
@@ -625,6 +634,8 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
   always use **Shutdown**, and let the ESP32 circuit power the PSU down.
 * **The image ships no VRAM tool.** `bc250memcfg` writing the split into CMOS is the way on the stock
   BIOS; the alternative is a modded BIOS.
+* **40 CU and 8 cores are a silicon lottery.** They work on this board; they will not work on every
+  board. Test before trusting them, one unlock at a time.
 * **40 CU is not a gaming upgrade.** Measured by the 40 CU researchers: +4.4 % in a graphics benchmark,
   1.6x in compute. Games on this chip are fill-rate bound.
 * **The GPU governor cap matters more.** `ujust bc250-cu-sweet-spot` caps the governor at 1500 MHz and
