@@ -292,7 +292,10 @@ BC-250 halts. Replaces the green-wire jumper, so the PSU sits under a watt when 
 instead of running continuously.
 
 Firmware: [`esp32-power-control/bc250_power_opto.ino`](esp32-power-control/bc250_power_opto.ino).
-TODO: schematic and ATX connector drawing as images.
+
+<p align="center">
+  <img src="images/esp32-schematic.svg" alt="Schematic: ESP32-C3 fed from +5VSB, GPIO 4 through R3 to the PC817 LED, PC817 phototransistor between ATX PS_ON and GND, GPIO 6 sensing TPMS1 pin 9 through R2, button on GPIO 7" width="720">
+</p>
 
 ### 5.1 How it works
 
@@ -326,6 +329,10 @@ touching connectors, and never open the PSU case: the primary side holds a letha
 it is unplugged.
 
 ### 5.2 ATX 24-pin pins used
+
+<p align="center">
+  <img src="images/atx-24pin-connector.svg" alt="ATX 24-pin connector pinout with pins 9, 15, 16 and 17 marked" width="420">
+</p>
 
 Contact face, retention tab on the right. The empty pin 20 and the tab between 18 and 19 fix the
 orientation. Four pins are tapped:
@@ -365,8 +372,8 @@ The logic ground node is a star: the ESP32 GND pad, the button return and PC817 
 joint, and a single wire runs from that joint to ATX pin 15. The power cable to the BC-250 is not
 touched.
 
-GPIO 4 high lights the LED, the phototransistor conducts, PS_ON is pulled to ground and the PSU
-starts. Nothing crosses the isolation barrier except light. Pins 15 and 17 are both ground and join
+In the schematic, GPIO 4 high lights the LED, the phototransistor conducts, PS_ON is pulled to ground
+and the PSU starts. Nothing crosses the dashed isolation barrier except light. Pins 15 and 17 are both ground and join
 inside the PSU; run two wires so they join there, through the supply's own heavy conductors, and not
 through your thin loom. Bridging PC817 pin 2 to pin 3 works electrically and throws that away.
 

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="920" height="700" viewBox="0 0 920 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schematic showing the ESP32, PC817 optocoupler and the isolation barrier between logic and PSU sides">
+  <style>
+    .w{stroke:#15171A;stroke-width:2;fill:none}
+    .box{fill:#FBFAF8;stroke:#15171A;stroke-width:2}
+    .tagbox{fill:#F2EFE9;stroke:#8A8478;stroke-width:1.5}
+    .t{font:13px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#15171A}
+    .tb{font:600 13px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#15171A}
+    .tsm{font:11.5px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#5A6068}
+    .tiso{font:600 12px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#1F6F8B}
+    .node{fill:#15171A}
+  </style>
+
+  <rect class="box" x="200" y="60" width="200" height="240" rx="6"/>
+  <text class="tb" x="300" y="150" text-anchor="middle">ESP32-C3</text>
+  <text class="tb" x="300" y="168" text-anchor="middle">SuperMini</text>
+  <text class="tsm" x="300" y="190" text-anchor="middle">fed from +5VSB</text>
+
+  <rect class="tagbox" x="30" y="83" width="145" height="34" rx="4"/>
+  <text class="t" x="102" y="105" text-anchor="middle">ATX 9 · +5VSB</text>
+  <path class="w" d="M175 100 H200"/>
+  <text class="tsm" x="207" y="94">5V</text>
+
+  <path class="w" d="M400 110 H520"/>
+  <rect class="box" x="520" y="95" width="56" height="30" rx="3"/>
+  <text class="tsm" x="548" y="115" text-anchor="middle">R2 1k</text>
+  <path class="w" d="M576 110 H648"/>
+  <rect class="tagbox" x="648" y="93" width="222" height="34" rx="4"/>
+  <text class="t" x="759" y="115" text-anchor="middle">BC-250 TPMS1 pin 9 · 3.3 V</text>
+  <text class="tsm" x="393" y="102" text-anchor="end">GPIO 6</text>
+
+  <path class="w" d="M400 180 H452"/>
+  <text class="tsm" x="393" y="172" text-anchor="end">GPIO 7</text>
+  <path class="w" d="M452 180 h10 M488 180 h42"/>
+  <circle cx="465" cy="180" r="3.5" class="node"/>
+  <circle cx="485" cy="180" r="3.5" class="node"/>
+  <path class="w" d="M459 168 L495 158"/>
+  <text class="tsm" x="470" y="150">SW1</text>
+  <path class="w" d="M530 180 V400"/>
+
+  <path class="w" d="M400 250 H700"/>
+  <text class="tsm" x="393" y="242" text-anchor="end">GPIO 4</text>
+  <path class="w" d="M700 250 V312"/>
+  <rect class="box" x="672" y="312" width="56" height="30" rx="3"/>
+  <text class="tsm" x="700" y="332" text-anchor="middle">R3 220</text>
+  <path class="w" d="M700 342 V430"/>
+
+  <path class="w" d="M190 400 H540"/>
+  <path class="w" d="M300 300 V400"/>
+  <circle cx="300" cy="400" r="4.5" class="node"/>
+  <circle cx="530" cy="400" r="4.5" class="node"/>
+  <text class="tsm" x="308" y="393">GND</text>
+  <rect class="tagbox" x="30" y="383" width="160" height="34" rx="4"/>
+  <text class="t" x="110" y="405" text-anchor="middle">ATX 15 · GND</text>
+  <text class="tsm" x="345" y="424">logic ground — star node</text>
+
+  <path class="w" d="M540 430 V400"/>
+
+  <path d="M20 500 H900" stroke="#1F6F8B" stroke-width="2" stroke-dasharray="9 7" fill="none"/>
+  <text class="tiso" x="20" y="492">isolation barrier — no shared ground</text>
+
+  <rect x="466" y="430" width="270" height="150" rx="6" fill="#FBFAF8" stroke="#1F6F8B" stroke-width="2"/>
+  <text class="tb" x="601" y="452" text-anchor="middle">PC817</text>
+
+  <path class="w" d="M700 430 V470 M540 430 V470"/>
+  <path class="w" d="M540 470 H700"/>
+  <path d="M636 458 L636 482 L612 470 Z" fill="#15171A"/>
+  <path class="w" d="M610 456 V484"/>
+  <path d="M648 478 l14 10 M648 488 l14 10" stroke="#1F6F8B" stroke-width="1.6" fill="none"/>
+  <path d="M660 486 l3 4 -5 1 z M660 496 l3 4 -5 1 z" fill="#1F6F8B"/>
+
+  <path class="w" d="M540 580 V545 M700 580 V545"/>
+  <path class="w" d="M540 545 H596 M700 545 H664"/>
+  <circle cx="630" cy="545" r="21" fill="none" stroke="#15171A" stroke-width="1.6"/>
+  <path class="w" d="M622 532 V558"/>
+  <path class="w" d="M622 539 L640 530 M622 551 L640 560"/>
+  <path d="M634 555 l8 5 -9 2 z" fill="#15171A"/>
+
+  <text class="tsm" x="700" y="424" text-anchor="middle">1 · anode</text>
+  <text class="tsm" x="540" y="424" text-anchor="middle">2 · cathode</text>
+  <text class="tsm" x="540" y="600" text-anchor="middle">4 · collector</text>
+  <text class="tsm" x="700" y="600" text-anchor="middle">3 · emitter</text>
+
+  <path class="w" d="M540 580 V640 H500"/>
+  <rect class="tagbox" x="320" y="623" width="180" height="34" rx="4"/>
+  <text class="t" x="410" y="645" text-anchor="middle">ATX 16 · PS_ON</text>
+
+  <path class="w" d="M700 580 V640 H744"/>
+  <rect class="tagbox" x="744" y="623" width="150" height="34" rx="4"/>
+  <text class="t" x="819" y="645" text-anchor="middle">ATX 17 · GND</text>
+</svg>
