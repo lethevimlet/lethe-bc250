@@ -312,7 +312,7 @@ instead of running continuously.
 Firmware: [`esp32-power-control/bc250_power_opto.ino`](esp32-power-control/bc250_power_opto.ino).
 
 <p align="center">
-  <img src="images/esp32-schematic.svg" alt="Schematic: ESP32-C3 fed from +5VSB, GPIO 4 through R3 to the PC817 LED, PC817 phototransistor between ATX PS_ON and GND, GPIO 6 sensing TPMS1 pin 9 through R2, button on GPIO 7" width="720">
+  <img src="images/schematic-esp32-pc817.svg" alt="Schematic: ESP32-C3 fed from +5VSB, GPIO 4 through R3 to the PC817 LED, PC817 phototransistor between ATX PS_ON and GND, GPIO 6 sensing TPMS1 pin 9 through R2, button on GPIO 7" width="720">
 </p>
 
 ### 5.1 How it works
@@ -349,7 +349,7 @@ it is unplugged.
 ### 5.2 ATX 24-pin pins used
 
 <p align="center">
-  <img src="images/atx-24pin-connector.svg" alt="ATX 24-pin connector pinout with pins 9, 15, 16 and 17 marked" width="420">
+  <img src="images/atx-24pin-pinout.svg" alt="ATX 24-pin connector pinout with pins 9, 15, 16 and 17 marked" width="420">
 </p>
 
 Contact face, retention tab on the right. The empty pin 20 and the tab between 18 and 19 fix the
