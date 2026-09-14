@@ -165,10 +165,7 @@ The BC-250 has no power button header, so read the whole section before starting
    handheld (Gaming Mode) desktop**. The deck variant boots straight into Steam's Gaming Mode.
 2. Write it to a USB stick, boot the BC-250 from it and install to the NVMe.
 3. First boot: finish the Steam setup, then switch to **Desktop Mode** (Power menu → Switch to Desktop)
-   and open a terminal. Enable SSH if you want to do the rest remotely:
-   ```bash
-   sudo systemctl enable --now sshd
-   ```
+   and open a terminal for the next steps.
 
 ### 3.3 Rebase to the 62fixolab patched image (40 CU experimental variant)
 
@@ -229,7 +226,7 @@ from voltage, see §4.2), 8 cores at 51 °C, 35 W package power, 6144 MB VRAM at
 
 ### 4.1 Install
 
-On the BC-250, from a Desktop Mode terminal or over SSH:
+On the BC-250, from a Desktop Mode terminal:
 
 ```bash
 git clone https://github.com/lethevimlet/lethe-bc250.git
