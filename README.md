@@ -75,7 +75,7 @@ Everything used in this build, with the exact parts where it matters.
 | Part | Notes |
 |------|-------|
 | **AMD BC-250 mining card** | Cyan Skillfish / Oberon APU: 6 of 8 Zen 2 cores and 24 of 40 RDNA2 CUs enabled from the factory, 16 GB GDDR6 shared between CPU and GPU. Stock ASRock BIOS P3.00. Needs an NVMe SSD (M.2 2280) for the OS. |
-| **PSU 500 W** (Metalfish 500 W) | Standard ATX. The BC-250 draws ~125–180 W at the extremes, all from the 12 V rail through the two Micro-Fit connectors. |
+| **PSU: Metalfish 500 W, Flex ATX** | [AliExpress](https://es.aliexpress.com/item/1005009609601844.html). **Flex ATX** form factor, which is what the printed case's PSU compartment is sized for (§6); a standard ATX or SFX unit will not fit. Standard ATX pinout otherwise: 24-pin and an EPS12V 8-pin for the board cable. The BC-250 draws ~125–180 W at the extremes, all from the 12 V rail. |
 | **Power cable: 8-pin EPS12V → 2× Micro-Fit 8-pin** — **REQUIRED, fire safety** | [moddiy ASRock BC-250 cable](https://www.moddiy.com/products/6837/Standard-8-Pin-EPS12V-to-2-x-MicroFit-8-Pin-Cable-for-ASRock-BC250.html). The board has two Micro-Fit 8-pin power inputs. Feeding it through a single PCIe 8-pin plug forces the whole 200–250 W peak draw down one 18 AWG lead set, which is beyond what that gauge is rated for and heats the cable and connector. This adapter takes the PSU's EPS12V (CPU) 8-pin, whose four 12 V conductors are rated for it, and splits it across both board inputs. Do not run the board on a PCIe cable alone. The plugs' tabs must be cut for them to seat; see [§2.2](#22-fit-the-power-cable-and-the-auto-power-on-jumper). |
 | **Soft power control** | **ESP32-C3 SuperMini** (recommended: tiny, USB-C, runs happily from the PSU's 5 V standby rail; any ESP32 works), [16 mm momentary push button](https://www.amazon.es/dp/B07Z4PHKJX), PC817 optocoupler, resistors (220 Ω and 1 kΩ), hookup wire, solder, heatshrink tube. Full parts list and build in [§5](#5-soft-power-control-with-an-esp32). |
 | **Cooling** | 2× **ARCTIC P12 PWM PST** 120 mm fans on the double fan shroud (recommended over a single fan), plus a **PWM Y-splitter** so both run from the board's one fan header (the P12 PST daisy-chains too). **Thermalright TFX** thermal paste for the APU (a full tube's worth is not excessive: the die sits ~1 mm below the heatsink base, §2.1) and new **2 mm thermal pads** for the GDDR6 and VRMs; the factory ones are dry. |
@@ -582,7 +582,7 @@ Steam Machine" by MrLarva** ([Thingiverse](https://www.thingiverse.com/thing:730
 and [MakerWorld](https://makerworld.com/en/models/2453965-asrock-bc-250-case-steam-machine-by-mrlarva)),
 licensed **CC BY-SA** (see [`printed-case/LICENSE.txt`](printed-case/LICENSE.txt)). It is a remix of
 [Arthrimus's console-style BC-250 case](https://www.thingiverse.com/thing:7165679) with a larger
-compartment for a Flex-ATX power supply, ventilation holes under it, a round front button, and a
+compartment for a Flex-ATX power supply (the Metalfish 500 W in §1 fits), ventilation holes under it, a round front button, and a
 bracket for 120 mm fans. Not our design; all credit to MrLarva and Arthrimus.
 
 | File | Size (mm) | What it is |
