@@ -12,6 +12,20 @@ here.
 
 > **Status:** the build is complete and in daily use; the guide is still being polished.
 
+**What the ESP32 power circuit gives you.** Out of the box the BC-250 has no power button and no way
+to switch itself off: it boots when the PSU comes up and, after a shutdown, the PSU keeps running.
+The small circuit in [§5](#5-soft-power-control-with-an-esp32) fixes that:
+
+* **Shut down like a normal computer.** Pick Shutdown in Steam or the desktop and the machine actually
+  goes dark: the ESP32 sees the board halt and cuts the PSU to standby, under a watt.
+* **A real power button.** One press on the front of the case starts it; hold five seconds to force
+  it off.
+* **Remote on/off over the web.** The ESP32 serves a small page on your LAN (and a REST API) to power
+  the console on from the sofa or another room, and to hard-cut it if it ever hangs.
+* **Not sleep.** Suspend and hibernation do not work on the BC-250 (the S3 path has not been
+  reverse-engineered, suspend-to-idle hangs, hibernation is buggy), so Sleep is off the table. A clean
+  shutdown plus a one-press start is the replacement, and it boots quickly from NVMe.
+
 For everything about the board itself (BIOS, pinouts, VRAM, power, kernel, governor), the
 [AMD BC-250 community documentation](https://elektricm.github.io/amd-bc250-docs/) by elektricM is the
 reference this guide leans on. Start there if something here is not covered.
