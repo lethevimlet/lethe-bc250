@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="520" height="640" viewBox="0 0 520 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ATX 24-pin connector pinout with pins 9, 15, 16 and 17 marked">
+  <rect data-bg="white" width="100%" height="100%" fill="#FFFFFF"/>
   <style>
     .pl{font:600 15px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#15171A}
     .pn{font:600 17px "Helvetica Neue",Helvetica,Arial,sans-serif}

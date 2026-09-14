@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="920" height="700" viewBox="0 0 920 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schematic showing the ESP32, PC817 optocoupler and the isolation barrier between logic and PSU sides">
+  <rect data-bg="white" width="100%" height="100%" fill="#FFFFFF"/>
   <style>
     .w{stroke:#15171A;stroke-width:2;fill:none}
     .box{fill:#FBFAF8;stroke:#15171A;stroke-width:2}
