@@ -74,6 +74,12 @@ with any of the methods below.
 
 To rebuild the frontend after editing `decky-plugin/src/index.tsx`: `cd decky-plugin && pnpm i && pnpm run build`.
 
+### Over the network (bc250-api)
+
+[`../bc250-api`](../bc250-api/) wraps the same `status --json` and `set` in a small REST service on
+port 8250, so the switches (and the HUD's numbers, plus FPS) are reachable from any browser on the
+LAN. The ESP32 power page uses it for its Console panel.
+
 ## Use
 
 ```bash

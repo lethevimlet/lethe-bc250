@@ -26,6 +26,11 @@ and, after a shutdown, the PSU keeps running. A small optocoupler circuit on an 
   it off.
 * **Remote on/off over the web.** The ESP32 serves a small page on your LAN (and a REST API) to power
   the console on from the sofa or another room, and to hard-cut it if it ever hangs.
+* **The console's stats and switches on the same page.** A tiny REST service on the BC-250
+  (`bc250-api`, [§4.6](#46-stats-and-switches-over-the-network-bc250-api)) exposes what the HUD shows
+  (FPS and game, GPU clock and temperature, CPU, SoC and total power, fan rpm, CU and core counts)
+  and every `bc250-tune` switch. The ESP32 page polls it from the phone's browser every 5 s while
+  the machine runs, so the ESP32 itself does no extra work.
 
 **2. Tuning from the Steam menu, no custom BIOS: the BC-250 Tune Decky plugin**
 ([§4](#4-tuning-bc250-tune)). Everything the modded-BIOS crowd flashes for, done from Linux on the
@@ -79,9 +84,10 @@ The whole build, in order. Each step links to the section with the details.
 3. **OS** — install stock Bazzite (deck), then rebase to the 62fixolab `-40cu` image and reboot
    ([§3](#3-install-bazzite-and-the-62fixolab-bc-250-image)).
 4. **Tune** — clone this repo on the BC-250 and run `sudo ./bc250-tune install`; optionally add the
-   Decky plugin for the Steam Quick Access menu ([§4](#4-tuning-bc250-tune)). Set the Performance
-   Overlay slider to level 1 for the HUD. Treat 40 CU and 8 cores as optional experiments: each board
-   is a silicon lottery.
+   Decky plugin for the Steam Quick Access menu ([§4](#4-tuning-bc250-tune)) and
+   `sudo bc250-api/install.sh` for the stats and switches over the network ([§4.6](#46-stats-and-switches-over-the-network-bc250-api)).
+   Set the Performance Overlay slider to level 1 for the HUD. Treat 40 CU and 8 cores as optional
+   experiments: each board is a silicon lottery.
 5. **Power button** — build the ESP32 optocoupler wiring, flash the firmware with the Arduino IDE, and
    test with the multimeter at each step ([§5](#5-soft-power-control-with-an-esp32)).
 6. **Case** — print the STLs, fit the inserts, mount the two fans on the double shroud, assemble
@@ -363,7 +369,7 @@ real Sleep harmless:
 | Step | What happens |
 |------|--------------|
 | Sleep | the running game's whole process tree is frozen (`SIGSTOP`, nothing rendered, GPU drops to its idle clock), audio is muted, and the TV is put to sleep through gamescope (`drm_sleep_external_screen`, real DPMS off) |
-| While asleep | the board stays fully powered at its idle package power (~32 W SoC, ~75 W at the wall): the **fans keep spinning** (slower, the chip is idle) and the **board LEDs stay lit**. Only the TV is dark. It is a pause, not a power saving |
+| While asleep | the board stays fully powered at its idle package power (~32 W SoC, ~75 W at the wall): the **board LEDs stay lit** and only the TV is dark. The board's own fan curve barely slows down when the chip idles, so the plugin drops the **fan header to ~25 % duty** itself (through the nct6687 driver) and gives it back on wake, or at once if a die passes 65 °C, the fan stalls or does not respond (BIOS fan mode *Full Speed* ignores it; use *Default* or *Customize*). It is a pause, not a power saving |
 | Wake | the first button press on any controller, keyboard or mouse turns the TV back on, thaws the game and unmutes; you are back exactly where you left off. **Do not use the case power button to wake:** the ESP32 sees the board as running, so a short press does nothing and a five-second hold hard-cuts the power (§5) |
 
 How to trigger it:
@@ -400,6 +406,31 @@ first so nothing stays frozen. The HDMI audio sink disappears while the TV is as
 retried for a moment after wake.
 
 ---
+
+### 4.6 Stats and switches over the network: `bc250-api`
+
+[`bc250-api/`](bc250-api/) is a one-file REST service (Python, standard library only) that runs as a
+systemd unit on the BC-250 and answers on port 8250:
+
+```
+GET  /api/status                 fps + game, GPU MHz/°C, CPU °C/MHz/cores, SoC and ~total W, fan rpm, VRAM, RAM, asleep, tune
+GET  /api/tune[?refresh=1]       bc250-tune status --json (cached 30 s)
+POST /api/tune/set               {"key":"cu","value":"40"}  → bc250-tune set cu 40
+POST /api/tune/reboot            warm reboot (8 cores)
+POST /api/tune/restart-session   gaming session restart (resolution)
+```
+
+```bash
+sudo bc250-api/install.sh                       # on the BC-250
+curl http://192.168.2.17:8250/api/status        # from anywhere on the LAN
+```
+
+FPS and the focused game come from gamescope's own stats pipe, which SteamOS creates and nothing
+reads (a line every 300 composited frames, so `fps` is `null` while the Steam UI sits idle). The
+rest is the same sysfs the HUD line reads, sampled once a second in a background thread, so a
+request answers in milliseconds. The ESP32 page uses it for its **Console** panel (§5.9); anything
+else on the LAN can too. There is no authentication, like the ESP32's own power API: keep port 8250
+on the trusted LAN. Details in [bc250-api/README.md](bc250-api/README.md).
 
 ## 5. Soft power control with an ESP32
 
@@ -543,6 +574,9 @@ PC817's pins are close together and a generous joint bridges them easily.
      for an open network.
    * `OTA_PASS` — **never leave it empty**; this firmware owns the machine's power path.
    * `MDNS_NAME` — the web page address (`bc250` → `http://bc250.local`).
+   * `CONSOLE_API` — default `http://<console-ip>:8250` where `bc250-api` runs ([§4.6](#46-stats-and-switches-over-the-network-bc250-api)).
+     It can be changed later from the page footer (kept in the ESP32's NVS), so a new console IP
+     needs no reflash. `""` hides the Console panel.
    * `BENCH_MODE` — `1` for bench testing (see below), `0` for normal use.
 5. **Disconnect the +5VSB wire before plugging in USB.** Most SuperMini clones tie USB VBUS straight to
    the 5V pin with no blocking diode, so leaving it connected ties the PSU standby rail to your
@@ -598,7 +632,7 @@ Notes:
 ### 5.9 Behaviour and the web page
 
 <p align="center">
-  <img src="images/esp32-gui.png" alt="The ESP32's web page: state OFF with uptime, Power on and Force off buttons, RSSI, OTA ready, sense LOW, IP and MAC" width="380">
+  <img src="images/esp32-gui.png" alt="The ESP32's web page: state RUNNING with uptime, Power on and Force off buttons, then the Console panel with FPS and game, GPU, CPU, power, fan and VRAM tiles, a pending warm-reboot notice and the bc250-tune switches" width="380">
 </p>
 
 The page at `http://bc250.local` (or the IP shown in its footer) is served by the ESP32 itself, with no
@@ -608,13 +642,25 @@ only when running. The footer shows the Wi-Fi signal, whether OTA is armed (`OTA
 off), the sense line (`HIGH` while the BC-250 reports alive), and the IP and MAC, the latter for the
 router's DHCP reservation. It polls `/rest/status` every two seconds while the tab is visible.
 
+While the state is `RUNNING` the page grows a **Console** panel, fetched by the phone's browser
+straight from `bc250-api` on the BC-250 (§4.6) every five seconds; the ESP32 only hands the browser
+the address (`console` in `/rest/status`, from `CONSOLE_API` in the sketch). Tiles show FPS and the
+running game, GPU clock and temperature, CPU temperature with cores and clock, SoC and estimated
+total power, fan rpm and VRAM use. Below them are the `bc250-tune` switches (compute units, cores,
+HUD, GPU floor and ceiling, VRAM split, resolution): a tap runs `bc250-tune set` on the console, and
+when a change still needs a warm reboot or a session restart a notice appears with the button for
+it. The panel says `waiting for console` while the OS boots and `asleep` during a fake sleep.
+The footer's `console …` entry shows the `bc250-api` address; tap it to change it (`GET
+/rest/console?url=http://host:8250`, stored in NVS, empty restores the compiled default).
+
 * A short press when off starts the machine. A short press while running does nothing on purpose:
   shut down in software so the filesystem is clean. Use Shutdown, not Sleep: sleep and hibernation
   do not work on the BC-250 (§7), and a sleeping board would leave the PSU on with no way to wake.
 * Hold the button five seconds to force the PSU off. This only arms once the firmware has reached
   RUNNING, which needs the sense line connected.
 * The web page and `/rest/on`, `/rest/off`, `/rest/status` do the same over the network. A web off is
-  a hard cut.
+  a hard cut. `/rest/status` also carries `console`, the `bc250-api` address the page polls;
+  `/rest/console?url=…` changes it without a reflash.
 * After a mains outage the machine stays off and waits for a press. To change that, call `psuOn()` at
   the end of `setup()` instead of entering `ST_OFF`.
 * An ESP32 crash or watchdog reset cuts a running machine: the LED goes dark before any code runs.

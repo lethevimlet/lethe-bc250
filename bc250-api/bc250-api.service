@@ -1,0 +1,15 @@
+[Unit]
+Description=bc250-api: REST status and tuning API for the BC-250 (port 8250)
+# Not After=bc250-tune.service: that unit is After=multi-user.target, which would make a cycle.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/bc250-api
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

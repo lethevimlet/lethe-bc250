@@ -1,0 +1,498 @@
+#!/usr/bin/env python3
+"""bc250-api — a small REST service for the AMD BC-250 running Bazzite.
+
+Exposes what the one-line MangoHud HUD shows (FPS, GPU clock and temperature, CPU temperature, SoC
+and estimated total power, fan rpm, CU and core counts) plus the bc250-tune switches, as JSON over
+plain HTTP on the LAN, so a phone page (the ESP32 power controller's web GUI) can poll it and flip
+the same options without a display.
+
+  GET  /api/status                 live stats (sampled every second) + fps + cached tune status
+  GET  /api/tune[?refresh=1]       `bc250-tune status --json`, cached for TUNE_TTL seconds
+  POST /api/tune/set               {"key": "cu", "value": "40"}   -> `bc250-tune set cu 40`
+  POST /api/tune/reboot            -> `bc250-tune reboot`          (warm reboot, for 8 cores)
+  POST /api/tune/restart-session   -> `bc250-tune restart-session` (for a resolution change)
+
+FPS comes from gamescope's own stats pipe (`gamescope -T <dir>/stats.pipe`, linked from
+$XDG_RUNTIME_DIR/gamescope-stats), which SteamOS creates but nothing reads; gamescope writes an
+`fps=` and a `focus=` line every 300 composited frames (about every 5 s in a 60 fps game, and not at
+all while the Steam UI sits idle, so fps is null then). Everything else is sysfs. No authentication: this is for a trusted LAN, like the ESP32
+power API itself. Runs as root because the tune switches need it. Standard library only.
+"""
+import glob
+import json
+import os
+import re
+import select
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
+
+VERSION = "1.0.0"
+PORT = int(os.environ.get("BC250_API_PORT", "8250"))
+TUNE = "/usr/local/bin/bc250-tune"
+TUNE_CONF = "/etc/bc250-tune/config"
+GOV_CONF = "/etc/cyan-skillfish-governor-smu/config.toml"
+SLEEP_STATE = "/run/bc250-sleep/state.json"
+TUNE_TTL = 30.0  # seconds between `bc250-tune status --json` runs (it forks umr/setpci, ~1 s)
+FPS_STALE_S = 20.0  # gamescope writes a line every 300 composited frames (5 s at 60 fps); older -> null
+SAMPLE_S = 1.0
+TUNE_KEYS = ("uma", "gpu-min", "gpu-max", "cu", "cores", "hud", "res")
+VALUE_RE = re.compile(r"^[A-Za-z0-9x]{1,16}$")  # 6144, 1850, 40, on, native, 1920x1080
+# bc250-tune must not inherit a caller's LD_LIBRARY_PATH (Decky's bundled OpenSSL breaks systemctl/umr)
+CLEAN_ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "HOME": "/root"}
+DEFAULT_SAFE_POINTS = [(500, 700), (1000, 800), (1175, 850), (1500, 900), (1600, 910), (1700, 920), (1850, 930), (2000, 960)]
+
+
+def log(*a):
+    print(time.strftime("%H:%M:%S"), *a, flush=True)
+
+
+def read(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def read_int(path, default=None):
+    try:
+        return int(read(path))
+    except (TypeError, ValueError):
+        return default
+
+
+def hwmon(name):
+    for h in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+        if read(os.path.join(h, "name")) == name:
+            return h
+    return None
+
+
+def gpu_pci():
+    for d in sorted(glob.glob("/sys/bus/pci/devices/*")):
+        if read(os.path.join(d, "class"), "").startswith("0x03") and os.path.exists(os.path.join(d, "pp_dpm_sclk")):
+            return d
+    return None
+
+
+def tune_conf():
+    conf = {}
+    for line in (read(TUNE_CONF, "") or "").splitlines():
+        m = re.match(r"^([A-Z_]+)=([^#]*)", line)
+        if m:
+            conf[m.group(1)] = m.group(2).strip()
+    return conf
+
+
+def safe_points():
+    """(MHz, mV) pairs of the governor's [[safe-points]] table, used to estimate the GPU clock."""
+    pts, f = [], None
+    for line in (read(GOV_CONF, "") or "").splitlines():
+        m = re.match(r"^\s*(frequency|voltage)\s*=\s*(\d+)", line)
+        if not m:
+            continue
+        if m.group(1) == "frequency":
+            f = int(m.group(2))
+        elif f is not None:
+            pts.append((f, int(m.group(2))))
+            f = None
+    return pts or DEFAULT_SAFE_POINTS
+
+
+def mhz_from_mv(mv, pts):
+    if mv <= pts[0][1]:
+        return pts[0][0]
+    for i in range(1, len(pts)):
+        if mv <= pts[i][1]:
+            f0, v0 = pts[i - 1]
+            f1, v1 = pts[i]
+            return int(f0 + (f1 - f0) * (mv - v0) / (v1 - v0))
+    return pts[-1][0]
+
+
+def cores_visible():
+    ids = set()
+    for line in (read("/proc/cpuinfo", "") or "").splitlines():
+        if line.startswith("core id"):
+            ids.add(line.split(":", 1)[1].strip())
+    return len(ids)
+
+
+def cpu_mhz():
+    """Fastest core right now. No cpufreq on this board, so /proc/cpuinfo it is."""
+    best = 0.0
+    for line in (read("/proc/cpuinfo", "") or "").splitlines():
+        if line.startswith("cpu MHz"):
+            try:
+                best = max(best, float(line.split(":", 1)[1]))
+            except ValueError:
+                pass
+    return int(best) if best else None
+
+
+def fan_rpm():
+    for chip in ("nct6687", "nct6686", "nct6683"):
+        h = hwmon(chip)
+        if h:
+            for n in range(1, 9):
+                rpm = read_int(os.path.join(h, f"fan{n}_input"))
+                if rpm:
+                    return rpm
+            return 0
+    return None
+
+
+class Sampler(threading.Thread):
+    """Cheap sysfs reads once a second into a snapshot the HTTP threads copy."""
+
+    def __init__(self):
+        super().__init__(daemon=True, name="sampler")
+        self.snap = {}
+        self.lock = threading.Lock()
+        self.amd = hwmon("amdgpu")
+        self.k10 = hwmon("k10temp")
+        self.pci = gpu_pci()
+        self.pts = safe_points()
+
+    def gpu_mhz(self):
+        """Like bc250-tune: with 8 cores unlocked the SMU clock table is garbage, so estimate from VDDGFX."""
+        m = None
+        if self.pci:
+            for line in (read(os.path.join(self.pci, "pp_dpm_sclk"), "") or "").splitlines():
+                mm = re.match(r"^\d+:\s*(\d+)Mhz \*", line)
+                if mm:
+                    m = int(mm.group(1))
+        if cores_visible() < 8 and m is not None and m >= 300:
+            return m, False
+        mv = read_int(os.path.join(self.amd, "in0_input")) if self.amd else None
+        if mv is not None:
+            return mhz_from_mv(mv, self.pts), True
+        return m or 0, False
+
+    def sample(self):
+        conf = tune_conf()
+        offset = int(conf.get("TOTAL_OFFSET_W", "45") or 45)
+        soc_uw = read_int(os.path.join(self.amd, "power1_average")) if self.amd else None
+        soc_w = round(soc_uw / 1e6, 1) if soc_uw is not None else None
+        mhz, est = self.gpu_mhz()
+        vram_used = read_int(os.path.join(self.pci, "mem_info_vram_used")) if self.pci else None
+        vram_total = read_int(os.path.join(self.pci, "mem_info_vram_total")) if self.pci else None
+        mem = {}
+        for line in (read("/proc/meminfo", "") or "").splitlines():
+            k, _, v = line.partition(":")
+            if k in ("MemTotal", "MemAvailable"):
+                mem[k] = int(v.split()[0]) // 1024
+        load1 = float((read("/proc/loadavg", "0") or "0").split()[0])
+        return {
+            "gpu": {
+                "mhz": mhz,
+                "mhz_estimated": est,
+                "temp_c": (read_int(os.path.join(self.amd, "temp1_input")) or 0) // 1000 if self.amd else None,
+                "vram_used_mb": vram_used // 1048576 if vram_used is not None else None,
+                "vram_total_mb": vram_total // 1048576 if vram_total is not None else None,
+            },
+            "cpu": {
+                "temp_c": (read_int(os.path.join(self.k10, "temp1_input")) or 0) // 1000 if self.k10 else None,
+                "mhz": cpu_mhz(),
+                "cores": cores_visible(),
+                "threads": os.cpu_count(),
+                "load1": load1,
+            },
+            "power": {"soc_w": soc_w, "total_w": round(soc_w + offset) if soc_w is not None else None, "total_offset_w": offset},
+            "fan": {"rpm": fan_rpm()},
+            "mem": {"used_mb": mem.get("MemTotal", 0) - mem.get("MemAvailable", 0), "total_mb": mem.get("MemTotal")},
+            "uptime_s": int(float((read("/proc/uptime", "0") or "0").split()[0])),
+            "asleep": os.path.exists(SLEEP_STATE),
+        }
+
+    def run(self):
+        while True:
+            try:
+                s = self.sample()
+                with self.lock:
+                    self.snap = s
+            except Exception as e:  # noqa: BLE001
+                log("sampler error:", e)
+            time.sleep(SAMPLE_S)
+
+    def get(self):
+        with self.lock:
+            return dict(self.snap)
+
+
+class FpsReader(threading.Thread):
+    """Keeps gamescope's stats pipe open and remembers the last `fps=` / `focus=` values.
+
+    The pipe is a FIFO gamescope opens for writing; with no reader it just blocks its stats thread,
+    and it survives the reader going away (checked). The path changes with every gaming session, so
+    it is re-resolved whenever the pipe goes quiet."""
+
+    def __init__(self):
+        super().__init__(daemon=True, name="fps")
+        self.lock = threading.Lock()
+        self.fps = None
+        self.focus = None
+        self.at = 0.0
+        self.samples = 0
+        self.names = {}
+
+    @staticmethod
+    def pipe_path():
+        for link in glob.glob("/run/user/*/gamescope-stats"):
+            p = os.path.join(os.path.realpath(link), "stats.pipe")
+            if os.path.exists(p):
+                return p
+        return None
+
+    def game_name(self, appid):
+        if not appid or not appid.isdigit():
+            return None
+        if appid not in self.names:
+            self.names[appid] = None
+            for acf in glob.glob(f"/home/*/.local/share/Steam/steamapps/appmanifest_{appid}.acf") + glob.glob(
+                f"/var/home/*/.local/share/Steam/steamapps/appmanifest_{appid}.acf"
+            ):
+                m = re.search(r'"name"\s+"([^"]*)"', read(acf, "") or "")
+                if m:
+                    self.names[appid] = m.group(1)
+                    break
+        return self.names[appid]
+
+    def handle(self, line):
+        k, _, v = line.partition("=")
+        with self.lock:
+            if k == "fps":
+                try:
+                    self.fps = round(float(v), 1)
+                    self.at = time.time()
+                    self.samples += 1
+                except ValueError:
+                    pass
+            elif k == "focus":
+                self.focus = v.strip()
+
+    def run(self):
+        while True:
+            path = self.pipe_path()
+            if not path:
+                time.sleep(2)
+                continue
+            try:
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError as e:
+                log("fps: cannot open", path, e)
+                time.sleep(2)
+                continue
+            log("fps: reading", path)
+            buf = b""
+            quiet = 0.0
+            try:
+                while True:
+                    r, _, _ = select.select([fd], [], [], 1.0)
+                    if not r:
+                        quiet += 1
+                        if quiet >= 5 and self.pipe_path() != path:
+                            break  # session restarted, pipe moved
+                        continue
+                    data = os.read(fd, 4096)
+                    if not data:  # no writer at the moment (EOF on a FIFO): wait for one, do not spin
+                        time.sleep(0.5)
+                        quiet += 0.5
+                        if quiet >= 5 and self.pipe_path() != path:
+                            break
+                        continue
+                    quiet = 0.0
+                    buf += data
+                    *lines, buf = buf.split(b"\n")
+                    for ln in lines:
+                        self.handle(ln.decode(errors="replace"))
+            except OSError as e:
+                log("fps: read error", e)
+            finally:
+                os.close(fd)
+
+    def get(self):
+        with self.lock:
+            fresh = time.time() - self.at <= FPS_STALE_S
+            focus = self.focus
+        return {"fps": self.fps if fresh else None, "fps_samples": self.samples, "focus": focus,
+                "game": self.game_name(focus) if focus else None}
+
+
+class Tune:
+    """bc250-tune status, cached; set/reboot/restart-session serialized through one lock."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.status = None
+        self.at = 0.0
+        self.error = None
+        self.available = os.path.exists(TUNE)
+
+    def run(self, *args, timeout=120):
+        try:
+            p = subprocess.run([TUNE, *args], capture_output=True, text=True, timeout=timeout, env=CLEAN_ENV)
+            return p.returncode, (p.stdout + p.stderr).strip()
+        except FileNotFoundError:
+            return 127, f"{TUNE} not found"
+        except subprocess.TimeoutExpired:
+            return 124, "timeout"
+
+    def refresh(self):
+        if not self.available:
+            return
+        rc, out = self.run("status", "--json", timeout=30)
+        st = None
+        for line in reversed(out.splitlines()):
+            if line.strip().startswith("{"):
+                try:
+                    st = json.loads(line)
+                    break
+                except json.JSONDecodeError:
+                    pass
+        with self.lock:
+            self.at = time.time()
+            if st is not None:
+                self.status, self.error = st, None
+            else:
+                self.error = f"rc={rc}: {out[-200:]}"
+
+    def get(self, max_age=TUNE_TTL):
+        with self.lock:
+            stale = time.time() - self.at > max_age
+        if stale:
+            self.refresh()
+        with self.lock:
+            return {"available": self.available, "status": self.status, "age_s": round(time.time() - self.at, 1), "error": self.error}
+
+    def action(self, *args):
+        rc, out = self.run(*args)
+        log("tune", " ".join(args), "rc", rc)
+        self.refresh()
+        return {"ok": rc == 0, "output": out}
+
+
+class TuneLoop(threading.Thread):
+    def __init__(self, tune):
+        super().__init__(daemon=True, name="tune")
+        self.tune = tune
+
+    def run(self):
+        while True:
+            try:
+                self.tune.get()
+            except Exception as e:  # noqa: BLE001
+                log("tune error:", e)
+            time.sleep(TUNE_TTL / 2)
+
+
+sampler = Sampler()
+fps = FpsReader()
+tune = Tune()
+action_lock = threading.Lock()
+started = time.time()
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = f"bc250-api/{VERSION}"
+
+    def log_message(self, fmt, *args):  # keep the journal quiet: one line per mutation only
+        pass
+
+    def send_json(self, obj, code=200):
+        body = json.dumps(obj, separators=(",", ":")).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.cors()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "86400")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.cors()
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self):
+        u = urlsplit(self.path)
+        q = parse_qs(u.query)
+        if u.path in ("/", "/api", "/api/"):
+            return self.send_json({
+                "service": "bc250-api", "version": VERSION, "uptime_s": int(time.time() - started),
+                "endpoints": ["GET /api/status", "GET /api/tune?refresh=1", "POST /api/tune/set {key,value}",
+                              "POST /api/tune/reboot", "POST /api/tune/restart-session"],
+            })
+        if u.path == "/api/status":
+            d = sampler.get()
+            d.update(fps.get())
+            d["tune"] = tune.get()["status"]
+            d["ts"] = round(time.time(), 1)
+            return self.send_json(d)
+        if u.path == "/api/tune":
+            return self.send_json(tune.get(max_age=0 if q.get("refresh") else TUNE_TTL))
+        self.send_json({"error": "not found"}, 404)
+
+    def body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(n) if n else b""
+        ctype = self.headers.get("Content-Type", "")
+        if "json" in ctype:
+            try:
+                return json.loads(raw or b"{}")
+            except json.JSONDecodeError:
+                return {}
+        return {k: v[0] for k, v in parse_qs(raw.decode(errors="replace")).items()}
+
+    def do_POST(self):
+        u = urlsplit(self.path)
+        if not tune.available:
+            return self.send_json({"ok": False, "output": f"{TUNE} not installed"}, 503)
+        if u.path == "/api/tune/set":
+            b = self.body()
+            key, value = str(b.get("key", "")).lower(), str(b.get("value", ""))
+            if key not in TUNE_KEYS:
+                return self.send_json({"ok": False, "output": f"key must be one of {', '.join(TUNE_KEYS)}"}, 400)
+            if not VALUE_RE.match(value):
+                return self.send_json({"ok": False, "output": "bad value"}, 400)
+            with action_lock:
+                r = tune.action("set", key, value)
+        elif u.path == "/api/tune/reboot":
+            with action_lock:
+                r = tune.action("reboot")
+        elif u.path == "/api/tune/restart-session":
+            with action_lock:
+                r = tune.action("restart-session")
+        else:
+            return self.send_json({"error": "not found"}, 404)
+        self.send_json(r, 200 if r["ok"] else 500)
+
+
+def main():
+    if not sampler.amd:
+        log("warning: no amdgpu hwmon found")
+    sampler.start()
+    fps.start()
+    TuneLoop(tune).start()
+    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    srv.daemon_threads = True
+    log(f"bc250-api {VERSION} on port {PORT} (tune: {'yes' if tune.available else 'no'})")
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -20,8 +20,8 @@
 // Without CDC enabled the sketch still runs but the serial monitor
 // stays blank.
 //
-// No external libraries: WiFi, WebServer, ESPmDNS and ArduinoOTA all
-// ship with the ESP32 core.
+// No external libraries: WiFi, WebServer, ESPmDNS, ArduinoOTA and
+// Preferences all ship with the ESP32 core.
 // ---------------------------------------------------------------
 
 #include <Arduino.h>
@@ -29,6 +29,7 @@
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
+#include <Preferences.h>
 
 #define BENCH_MODE 0
 
@@ -37,6 +38,15 @@ const char *WIFI_SSID = "YOUR_SSID";
 const char *WIFI_PASS = "YOUR_PASSWORD";   // WPA2 requires 8-63 chars.
                                            // Leave "" for an open network.
 const char *MDNS_NAME = "bc250";           // -> http://bc250.local
+
+// bc250-api on the console (see ../bc250-api). The web page polls it from
+// the *browser*, every 5 s while the machine is RUNNING, so the ESP32 does
+// no extra work. This is only the default: the address can be changed from
+// the page footer (or GET /rest/console?url=...) and is kept in NVS, so a
+// new console IP does not need a reflash. "" hides the console panel.
+const char *CONSOLE_API = "http://192.168.2.17:8250";
+Preferences prefs;
+String consoleApi;                         // NVS value, else CONSOLE_API
 
 const uint32_t WIFI_RETRY = 300000;        // reconnect attempt, 5 min
 
@@ -117,8 +127,10 @@ bool boardAlive() {
 
 // ---- Web page --------------------------------------------------
 // Self-contained, no CDN: the network may have no internet access.
-// Fluid layout: single column on phones, side-by-side from 560px up,
-// and a compact row when vertical space is tight (phone in landscape).
+// Fluid layout: single column on phones, wider card from 560px up, and a
+// compact layout when vertical space is tight (phone in landscape).
+// The console panel (stats + tune switches) talks to bc250-api on the
+// BC-250 straight from the browser, only while the machine is RUNNING.
 static const char PAGE_HTML[] PROGMEM = R"rawliteral(
 <!doctype html><html lang="en"><head>
 <meta charset="utf-8">
@@ -157,10 +169,42 @@ button:disabled{opacity:.38;cursor:not-allowed}
 .net{margin-top:16px;padding-top:13px;border-top:1px solid #2b3039;
  color:#6d747e;font-size:.72em;display:flex;flex-wrap:wrap;gap:4px 14px;
  justify-content:space-between}
+#capi{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
 .id{margin-top:7px;color:#6d747e;font-size:.7em;text-align:center;
  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.4px;
  word-break:break-all}
-@media (min-width:560px){.btns{grid-template-columns:1fr 1fr}}
+/* console panel */
+#con{display:none;margin-top:18px;padding-top:16px;border-top:1px solid #2b3039}
+#con.show{display:block}
+.hd{display:flex;align-items:baseline;gap:8px;margin:0 0 10px}
+.hd h2{margin:0;font-size:.95em;font-weight:600}
+.hd .meta{font-size:.72em}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}
+.tile{background:#22262e;border-radius:11px;padding:10px 12px;min-width:0}
+.tile .k{color:#8b929c;font-size:.68em;text-transform:uppercase;letter-spacing:.6px}
+.tile .v{font-size:1.25em;font-weight:600;line-height:1.25;white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.tile .v small{font-size:.62em;font-weight:500;color:#8b929c;margin-left:2px}
+.tile .s{color:#8b929c;font-size:.68em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pend{display:none;margin:12px 0 0;padding:10px 12px;border-radius:11px;background:#3a2f16;
+ color:#f0c674;font-size:.8em}
+.pend.show{display:block}
+.pend .btns{margin-top:8px}
+.pend button{min-height:40px;padding:8px 12px;background:#6b5420;font-size:.95em}
+.tune{margin-top:14px;display:grid;gap:8px}
+.row{display:flex;align-items:center;gap:10px;min-height:44px}
+.row .n{flex:1;min-width:0}
+.row .n b{font-weight:600;font-size:.9em;display:block}
+.row .n i{font-style:normal;color:#8b929c;font-size:.7em;display:block;white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis}
+.seg{display:flex;background:#22262e;border-radius:9px;padding:3px;gap:3px;flex:none}
+.seg button{width:auto;min-height:36px;padding:6px 14px;border-radius:7px;background:transparent;
+ color:#8b929c;font-size:.85em}
+.seg button.sel{background:#3a4150;color:#fff}
+select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;border-radius:9px;
+ background:#22262e;color:#e6e8eb;font:inherit;font-size:.85em;max-width:48%}
+.busy .tune,.busy .pend{opacity:.5;pointer-events:none}
+@media (min-width:560px){.btns{grid-template-columns:1fr 1fr}.card{max-width:520px}}
 @media (max-height:460px) and (orientation:landscape){
  body{align-items:flex-start}
  .card{max-width:620px;padding:16px 20px}
@@ -185,12 +229,28 @@ button:disabled{opacity:.38;cursor:not-allowed}
 </div>
 <p class="warn">Force off is a hard cut, the same as holding the button for five
 seconds. For a clean shutdown, use the operating system.</p>
-<div class="net"><span id="rssi"></span><span id="ota"></span><span id="sense"></span></div>
+<div id="con">
+<div class="hd"><h2>Console</h2><span class="meta" id="cst">connecting</span></div>
+<div class="tiles">
+<div class="tile"><div class="k">FPS</div><div class="v" id="fps">–</div><div class="s" id="game"></div></div>
+<div class="tile"><div class="k">GPU</div><div class="v" id="gmhz">–</div><div class="s" id="gtemp"></div></div>
+<div class="tile"><div class="k">CPU</div><div class="v" id="ctemp">–</div><div class="s" id="cmhz"></div></div>
+<div class="tile"><div class="k">Power</div><div class="v" id="soc">–</div><div class="s" id="tot"></div></div>
+<div class="tile"><div class="k">Fan</div><div class="v" id="fan">–</div><div class="s" id="fans">rpm</div></div>
+<div class="tile"><div class="k">VRAM</div><div class="v" id="vram">–</div><div class="s" id="vrams"></div></div>
+</div>
+<div class="pend" id="pend"><span id="pendt"></span>
+<div class="btns"><button id="rb">Warm reboot</button><button id="rs">Restart session</button></div></div>
+<div class="tune" id="tune"></div>
+</div>
+<div class="net"><span id="rssi"></span><span id="ota"></span><span id="sense"></span>
+<span id="capi" title="tap to change the bc250-api address"></span></div>
 <div class="id" id="id"></div>
 </div>
 <script>
 const $=i=>document.getElementById(i);
 function hms(s){const h=(s/3600|0),m=(s%3600/60|0);return h?h+"h "+m+"m":m+"m"}
+let api=null,running=false,ct=null,busy=false,tuneBuilt=false;
 async function poll(){
  try{const r=await fetch('/rest/status'),d=await r.json();
   $('st').textContent=d.state;
@@ -203,15 +263,109 @@ async function poll(){
   $('id').textContent=d.ip+'  ·  '+d.mac;
   $('on').disabled=(d.state!='OFF');
   $('off').disabled=(d.state=='OFF'||d.state=='STOPPING');
- }catch(e){$('st').textContent='offline';}
+  api=new URLSearchParams(location.search).get('console')||d.console||null;
+  $('capi').textContent='console '+(d.console?d.console.replace(/^https?:\/\//,''):'off');
+  setRunning(d.state=='RUNNING'&&!!api);
+ }catch(e){$('st').textContent='offline';setRunning(false);}
 }
 $('on').onclick=async()=>{await fetch('/rest/on');setTimeout(poll,300)};
 $('off').onclick=async()=>{if(!confirm('Hard-cut power to the machine?'))return;
  await fetch('/rest/off');setTimeout(poll,300)};
+// The bc250-api address lives in the ESP32's NVS; empty restores the compiled default.
+$('capi').onclick=async()=>{const v=prompt('bc250-api address (empty = default)',api||'');
+ if(v===null)return;const r=await fetch('/rest/console?url='+encodeURIComponent(v.trim()));
+ if(!r.ok)alert('not saved: use http://host:8250');setRunning(false);poll()};
+// ---- console panel: polled from the browser, 5 s, only while RUNNING and visible
+function setRunning(on){
+ if(on==running)return;running=on;$('con').className=on?'show':'';
+ if(ct){clearInterval(ct);ct=null}
+ if(on){cpoll();ct=setInterval(cpoll,5000)}
+}
+const fmt=(v,d=0)=>v==null?'–':Number(v).toFixed(d);
+async function cpoll(){
+ if(!api||!running||document.hidden)return;
+ try{
+  const c=new AbortController(),tm=setTimeout(()=>c.abort(),4000);
+  const r=await fetch(api+'/api/status',{cache:'no-store',signal:c.signal});clearTimeout(tm);
+  const d=await r.json();render(d);
+  $('cst').textContent=d.asleep?'asleep':'live';
+ }catch(e){$('cst').textContent='waiting for console';}
+}
+function render(d){
+ $('fps').textContent=d.fps==null?'–':Math.round(d.fps);
+ $('game').textContent=d.game||(d.focus=='steam'?'Steam':d.fps==null?'idle':'app '+d.focus);
+ $('gmhz').innerHTML=(d.gpu.mhz_estimated?'~':'')+fmt(d.gpu.mhz)+'<small>MHz</small>';
+ $('gtemp').textContent=fmt(d.gpu.temp_c)+' °C';
+ $('ctemp').innerHTML=fmt(d.cpu.temp_c)+'<small>°C</small>';
+ $('cmhz').textContent=d.cpu.cores+' cores · '+fmt(d.cpu.mhz/1000,1)+'GHz';
+ $('soc').innerHTML=fmt(d.power.soc_w)+'<small>W SoC</small>';
+ $('tot').textContent='~'+fmt(d.power.total_w)+' W total';
+ $('fan').textContent=fmt(d.fan.rpm);
+ $('vram').innerHTML=fmt(d.gpu.vram_used_mb/1024,1)+'<small>GB</small>';
+ $('vrams').textContent='of '+fmt(d.gpu.vram_total_mb/1024,0)+' GB';
+ renderTune(d.tune);
+}
+// ---- tune switches (bc250-tune through bc250-api)
+const OPTS={
+ cu:{n:'Compute units',v:['24','40'],h:t=>t.cu.live+' routed'},
+ cores:{n:'CPU cores',v:['6','8'],h:t=>t.cores.visible+' visible, needs a warm reboot'},
+ hud:{n:'HUD line',v:['on','off'],h:t=>'MangoHud overlay level 1'},
+ 'gpu-min':{n:'GPU floor',s:['500','700','1000','1175'],u:' MHz',h:t=>'now '+(t.gpu.cur_mhz_estimated?'~':'')+t.gpu.cur_mhz+' MHz'},
+ 'gpu-max':{n:'GPU ceiling',s:['1500','1700','1850','2000'],u:' MHz',h:t=>'2000 runs hotter'},
+ uma:{n:'VRAM (UMA)',s:['2048','4096','6144','8192','10240','12288'],u:' MB',h:t=>'CMOS, needs a reboot'},
+ res:{n:'Resolution',s:['native','1280x720','1920x1080','2560x1440','3840x2160'],u:'',h:t=>'session '+(t.res.session||'?')}
+};
+const cur=(t,k)=>({cu:t.cu.config,cores:t.cores.config,hud:t.hud.config,'gpu-min':t.gpu.config_min,
+ 'gpu-max':t.gpu.config_max,uma:t.uma.config,res:t.res.config})[k];
+function buildTune(){
+ const box=$('tune');box.innerHTML='';
+ for(const k in OPTS){const o=OPTS[k];
+  const row=document.createElement('div');row.className='row';
+  row.innerHTML='<div class="n"><b>'+o.n+'</b><i id="h-'+k+'"></i></div>';
+  if(o.v){const seg=document.createElement('div');seg.className='seg';seg.id='c-'+k;
+   o.v.forEach(v=>{const b=document.createElement('button');b.textContent=v;b.dataset.v=v;
+    b.onclick=()=>tset(k,v);seg.appendChild(b)});row.appendChild(seg);}
+  else{const sel=document.createElement('select');sel.id='c-'+k;
+   o.s.forEach(v=>{const e=document.createElement('option');e.value=v;e.textContent=v+o.u;sel.appendChild(e)});
+   sel.onchange=()=>tset(k,sel.value);row.appendChild(sel);}
+  box.appendChild(row);}
+ $('rb').onclick=()=>tact('reboot','Warm reboot the console now?');
+ $('rs').onclick=()=>tact('restart-session','Restart the gaming session now? Steam will close.');
+ tuneBuilt=true;
+}
+function renderTune(t){
+ if(!t){$('tune').style.display='none';$('pend').className='pend';return}
+ if(!tuneBuilt)buildTune();$('tune').style.display='';
+ if(busy)return;
+ for(const k in OPTS){const o=OPTS[k],v=String(cur(t,k)),c=$('c-'+k);
+  $('h-'+k).textContent=o.h(t);
+  if(o.v){[...c.children].forEach(b=>b.className=b.dataset.v==v?'sel':'')}
+  else if(document.activeElement!=c){
+   if(![...c.options].some(e=>e.value==v)){const e=document.createElement('option');e.value=v;e.textContent=v+o.u;c.appendChild(e)}
+   c.value=v}}
+ const p=t.pending||{},msg=[p.reboot,p.session_restart,p.cold_boot].filter(x=>x&&x!=='0').map(x=>String(x).replace(/;\s*$/,'')).join(' · ');
+ $('pend').className='pend'+(msg?' show':'');$('pendt').textContent='Pending: '+msg;
+ $('rb').style.display=p.reboot&&p.reboot!=='0'?'':'none';
+ $('rs').style.display=p.session_restart&&p.session_restart!=='0'?'':'none';
+}
+function setBusy(b){busy=b;$('con').className='show'+(b?' busy':'')}
+async function tset(k,v){
+ setBusy(true);$('cst').textContent='applying '+k+'='+v;
+ try{const r=await fetch(api+'/api/tune/set',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({key:k,value:v})}),j=await r.json();
+  if(!j.ok)alert('bc250-tune: '+(j.output||'failed'));
+ }catch(e){alert('console unreachable')}
+ setBusy(false);cpoll();
+}
+async function tact(a,q){
+ if(!confirm(q))return;setBusy(true);$('cst').textContent=a+'…';
+ try{await fetch(api+'/api/tune/'+a,{method:'POST'})}catch(e){}
+ setBusy(false);setTimeout(cpoll,3000);
+}
 // Poll only while the tab is visible, to save battery on the phone
 // and needless radio wakeups on the ESP32.
 let t=null;
-function run(on){if(t)clearInterval(t);t=on?setInterval(poll,2000):null;if(on)poll()}
+function run(on){if(t)clearInterval(t);t=on?setInterval(poll,2000):null;if(on){poll();cpoll()}}
 document.addEventListener('visibilitychange',()=>run(!document.hidden));
 run(true);
 </script></body></html>
@@ -222,10 +376,10 @@ void handleRoot() {
 }
 
 void handleStatus() {
-  char buf[288];
+  char buf[384];
   snprintf(buf, sizeof(buf),
     "{\"state\":\"%s\",\"sense\":%s,\"uptime\":%lu,\"rssi\":%d,"
-    "\"heap\":%lu,\"ota\":%s,\"ip\":\"%s\",\"mac\":\"%s\"}",
+    "\"heap\":%lu,\"ota\":%s,\"ip\":\"%s\",\"mac\":\"%s\",\"console\":\"%s\"}",
     stateName(state),
     boardAlive() ? "true" : "false",
     (unsigned long)(millis() / 1000),
@@ -233,8 +387,38 @@ void handleStatus() {
     (unsigned long)ESP.getFreeHeap(),
     otaEnabled ? "true" : "false",
     WiFi.localIP().toString().c_str(),
-    WiFi.macAddress().c_str());
+    WiFi.macAddress().c_str(),
+    consoleApi.c_str());
   server.send(200, "application/json", buf);
+}
+
+void loadConsoleApi() {
+  // Read-only open fails until the namespace exists; the default covers that.
+  prefs.begin("bc250", true);
+  consoleApi = prefs.getString("console", CONSOLE_API);
+  prefs.end();
+}
+
+// GET /rest/console?url=http://192.168.2.17:8250   ("" = back to the compiled default)
+void handleConsole() {
+  if (!server.hasArg("url")) {
+    server.send(400, "application/json", "{\"error\":\"url missing\"}");
+    return;
+  }
+  String url = server.arg("url");
+  url.trim();
+  if (url.length() > 96 ||
+      (url.length() && !url.startsWith("http://") && !url.startsWith("https://"))) {
+    server.send(400, "application/json", "{\"error\":\"url must start with http:// and be short\"}");
+    return;
+  }
+  prefs.begin("bc250", false);
+  if (url.length()) prefs.putString("console", url);
+  else              prefs.remove("console");
+  prefs.end();
+  loadConsoleApi();
+  Serial.printf("[web] console api -> %s\n", consoleApi.c_str());
+  server.send(200, "application/json", "{\"ok\":true,\"console\":\"" + consoleApi + "\"}");
 }
 
 void handleOn() {
@@ -350,6 +534,7 @@ void setup() {
   while (!Serial && millis() - t0 < 2000) delay(10);
   delay(200);
 
+  loadConsoleApi();
   wifiStart();
   otaSetup();
 
@@ -357,6 +542,7 @@ void setup() {
   server.on("/rest/status", handleStatus);
   server.on("/rest/on",     handleOn);
   server.on("/rest/off",    handleOff);
+  server.on("/rest/console", handleConsole);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("[web] server up on port 80");
