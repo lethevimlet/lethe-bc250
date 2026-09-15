@@ -12,9 +12,13 @@ here.
 
 > **Status:** the build is complete and in daily use; the guide is still being polished.
 
-**What the ESP32 power circuit gives you.** Out of the box the BC-250 has no power button and no way
-to switch itself off: it boots when the PSU comes up and, after a shutdown, the PSU keeps running.
-The small circuit in [§5](#5-soft-power-control-with-an-esp32) fixes that:
+## What this repo brings to the table
+
+Three things you will not find in the base images, plus the build notes to put them together:
+
+**1. Robust power management with an ESP32** ([§5](#5-soft-power-control-with-an-esp32)). Out of the
+box the BC-250 has no power button and no way to switch itself off: it boots when the PSU comes up
+and, after a shutdown, the PSU keeps running. A small optocoupler circuit on an ESP32-C3 fixes that:
 
 * **Shut down like a normal computer.** Pick Shutdown in Steam or the desktop and the machine actually
   goes dark: the ESP32 sees the board halt and cuts the PSU to standby, under a watt.
@@ -22,12 +26,24 @@ The small circuit in [§5](#5-soft-power-control-with-an-esp32) fixes that:
   it off.
 * **Remote on/off over the web.** The ESP32 serves a small page on your LAN (and a REST API) to power
   the console on from the sofa or another room, and to hard-cut it if it ever hangs.
-* **Not real sleep.** Suspend and hibernation do not work on the BC-250 (the S3 path has not been
-  reverse-engineered, suspend-to-idle hangs, hibernation is buggy). A clean shutdown plus a one-press
-  start is the replacement, and it boots quickly from NVMe. For "pause and come back later" there is
-  the **BC-250 Sleep** Decky plugin ([§4.5](#45-fake-sleep-the-bc-250-sleep-plugin)): it freezes the
-  game, mutes, turns the TV off and wakes on any button, and it takes over Steam's Sleep entry so the
-  real, board-hanging suspend can never be triggered.
+
+**2. Tuning from the Steam menu, no custom BIOS: the BC-250 Tune Decky plugin**
+([§4](#4-tuning-bc250-tune)). Everything the modded-BIOS crowd flashes for, done from Linux on the
+stock firmware and switchable from the Quick Access menu without leaving Gaming Mode: VRAM/RAM split
+(written to CMOS), GPU clock range, the 40 CU unlock, the 8-core unlock, output resolution, and a
+one-line MangoHud HUD showing what is enabled. A boot service re-applies it all, and a Bazzite reinstall
+does not lose the VRAM split.
+
+**3. Pseudo sleep: the BC-250 Sleep Decky plugin** ([§4.5](#45-fake-sleep-the-bc-250-sleep-plugin)).
+Real suspend and hibernation do not work on the BC-250 (the S3 path has not been reverse-engineered,
+suspend-to-idle hangs, hibernation is buggy), and Steam's Sleep entry would hang the board. The plugin
+gives you what you wanted from Sleep instead: it freezes the game, mutes, turns the TV off and wakes on
+any button press exactly where you left off, and it takes over Steam's Sleep entry so the real,
+board-hanging suspend can never be triggered.
+
+Recommended companion from the Decky store: **Pause Games** (freeze and resume individual games with
+SIGSTOP/SIGCONT, like the Steam Deck's quick suspend). It works on the BC-250 after the small
+permission fix in [§4.1](#41-install).
 
 For everything about the board itself (BIOS, pinouts, VRAM, power, kernel, governor), the
 [AMD BC-250 community documentation](https://elektricm.github.io/amd-bc250-docs/) by elektricM is the
