@@ -12,7 +12,10 @@ Part of [lethe-bc250](../README.md). A fake sleep for the AMD BC-250, which has 
    `bc250_sleep_woke` and the frontend calls `SuspendResumeStore.OnResumeFromSuspend()`, which is the
    event a real resume would have raised, so Steam's UI comes back.
 
-The board itself stays on at its idle power; this is a pause with quick resume, not a power saving.
+The board itself stays fully powered at its idle power: fans keep spinning and the board LEDs stay lit;
+only the TV is dark. This is a pause with quick resume, not a power saving. **Wake with a controller,
+keyboard or mouse button, never the case power button:** with the ESP32 power circuit the board reads
+as running, so a short press is ignored and a five-second hold hard-cuts the PSU.
 
 Sleep stays listed in Steam's power menu while the units are masked. If Decky fails to inject on a
 boot, the menu's Sleep falls through to the masked units and does nothing (harmless). Turning the

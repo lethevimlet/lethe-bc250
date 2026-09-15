@@ -38,8 +38,9 @@ does not lose the VRAM split.
 Real suspend and hibernation do not work on the BC-250 (the S3 path has not been reverse-engineered,
 suspend-to-idle hangs, hibernation is buggy), and Steam's Sleep entry would hang the board. The plugin
 gives you what you wanted from Sleep instead: it freezes the game, mutes, turns the TV off and wakes on
-any button press exactly where you left off, and it takes over Steam's Sleep entry so the real,
-board-hanging suspend can never be triggered.
+any controller or keyboard button exactly where you left off (not the case power button: the board
+stays powered, fans and LEDs on, and a long press there cuts the power), and it takes over Steam's
+Sleep entry so the real, board-hanging suspend can never be triggered.
 
 Recommended companion from the Decky store: **Pause Games** (freeze and resume individual games with
 SIGSTOP/SIGCONT, like the Steam Deck's quick suspend) for pausing one game while the console stays
@@ -362,8 +363,8 @@ real Sleep harmless:
 | Step | What happens |
 |------|--------------|
 | Sleep | the running game's whole process tree is frozen (`SIGSTOP`, nothing rendered, GPU drops to its idle clock), audio is muted, and the TV is put to sleep through gamescope (`drm_sleep_external_screen`, real DPMS off) |
-| While asleep | the board stays on at its idle package power (~32 W SoC, ~75 W at the wall); the TV is dark and the fans quiet. It is a pause, not a power saving |
-| Wake | the first button press on any controller, keyboard or mouse turns the TV back on, thaws the game and unmutes; you are back exactly where you left off |
+| While asleep | the board stays fully powered at its idle package power (~32 W SoC, ~75 W at the wall): the **fans keep spinning** (slower, the chip is idle) and the **board LEDs stay lit**. Only the TV is dark. It is a pause, not a power saving |
+| Wake | the first button press on any controller, keyboard or mouse turns the TV back on, thaws the game and unmutes; you are back exactly where you left off. **Do not use the case power button to wake:** the ESP32 sees the board as running, so a short press does nothing and a five-second hold hard-cuts the power (§5) |
 
 How to trigger it:
 
