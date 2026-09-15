@@ -648,8 +648,9 @@ While the state is `RUNNING` the page grows a **Console** panel, fetched by the 
 straight from `bc250-api` on the BC-250 (§4.6) every five seconds; the ESP32 only hands the browser
 the address (`console` in `/rest/status`, from `CONSOLE_API` in the sketch). Once the console
 answers, the status line refines the ESP32's `RUNNING` into **RUNNING** (a game is running),
-**IDLE** (on, no game) or **SLEEP** (the fake sleep of §4.5 holds it, blue dot), and a **Sleep** /
-**Wake** button under the tiles drives that fake sleep from the phone. Tiles show FPS and the
+**IDLE** (on, no game) or **SLEEP** (the fake sleep of §4.5 holds it, blue dot), and a third button,
+**Sleep** / **Wake**, appears next to Power on and Force off to drive that fake sleep from the
+phone. Tiles show FPS and the
 running game, GPU clock and temperature, CPU temperature with cores and clock, SoC and estimated
 total power, fan rpm and VRAM use. Below them are the `bc250-tune` switches (compute units, cores,
 HUD, GPU floor and ceiling, VRAM split, resolution): a tap runs `bc250-tune set` on the console, and

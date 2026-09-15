@@ -162,14 +162,16 @@ h1{margin:0 0 4px;font-size:1.2em;font-weight:600;letter-spacing:.2px}
 .lbl{font-weight:600;letter-spacing:.4px;overflow:hidden;text-overflow:ellipsis;
  white-space:nowrap}
 .meta{margin-left:auto;color:#8b929c;font-size:.78em;flex:none}
-.btns{display:grid;gap:10px}
+.btns{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+.pend .btns{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
 button{width:100%;min-height:48px;padding:13px 14px;border:0;border-radius:11px;
  font:inherit;font-weight:600;cursor:pointer;color:#fff;
  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
  transition:background .15s,opacity .15s}
 #on{background:#2f7d4a}#off{background:#8a3030}
-#slp{background:#2f4f7d}#slp.wake{background:#2f7d4a}.cbtn{margin-top:10px}
-#con:not(.ok) .cbtn{display:none}
+/* Sleep/Wake joins Power on / Force off as a third button once bc250-api answers */
+#slp{display:none;background:#2f4f7d}#slp.wake{background:#2f7d4a}
+.card.ok .btns.main{grid-template-columns:1fr 1fr 1fr}.card.ok #slp{display:block}
 button:disabled{opacity:.38;cursor:not-allowed}
 .warn{margin:16px 0 0;color:#8b929c;font-size:.76em}
 .net{margin-top:16px;padding-top:13px;border-top:1px solid #2b3039;
@@ -197,7 +199,7 @@ button:disabled{opacity:.38;cursor:not-allowed}
 .pend.show{display:block}
 .pend .btns{margin-top:8px}
 .pend button{min-height:40px;padding:8px 12px;background:#6b5420;font-size:.95em}
-.tune{margin-top:14px;display:grid;gap:8px}
+.tune{margin-top:14px;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .row{display:flex;align-items:center;gap:10px;min-height:44px}
 .row .n{flex:1;min-width:0}
 .row .n b{font-weight:600;font-size:.9em;display:block}
@@ -217,13 +219,12 @@ select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;borde
 #nocon p{margin:0 0 8px}#nocon p:last-child{margin:0}
 #nocon a{color:#aab2bd;text-decoration:underline dotted;text-underline-offset:3px}
 #nocon b{color:#c5cad1;font-weight:600}
-@media (min-width:560px){.btns{grid-template-columns:1fr 1fr}.card{max-width:520px}}
+@media (min-width:560px){.card{max-width:520px}}
 @media (max-height:460px) and (orientation:landscape){
  body{align-items:flex-start}
  .card{max-width:620px;padding:16px 20px}
  .sub{margin-bottom:12px}
  .state{margin-bottom:12px;padding:10px 14px}
- .btns{grid-template-columns:1fr 1fr}
  .warn{margin-top:11px}
  .net{margin-top:11px;padding-top:9px}
 }
@@ -236,9 +237,10 @@ select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;borde
 <div class="state"><span class="dot" id="dot"></span>
 <span class="lbl" id="st">...</span>
 <span class="meta" id="up"></span></div>
-<div class="btns">
+<div class="btns main">
 <button id="on">Power on</button>
 <button id="off">Force off</button>
+<button id="slp">Sleep</button>
 </div>
 <p class="warn">Force off is a hard cut, the same as holding the button for five
 seconds. For a clean shutdown, use the operating system.</p>
@@ -256,7 +258,6 @@ seconds. For a clean shutdown, use the operating system.</p>
 <div class="tile"><div class="k">Fan</div><div class="v" id="fan">–</div><div class="s" id="fans">rpm</div></div>
 <div class="tile"><div class="k">VRAM</div><div class="v" id="vram">–</div><div class="s" id="vrams"></div></div>
 </div>
-<div class="btns cbtn"><button id="slp">Sleep</button></div>
 <div class="pend" id="pend"><span id="pendt"></span>
 <div class="btns"><button id="rb">Warm reboot</button><button id="rs">Restart session</button></div></div>
 <div class="tune" id="tune"></div>
@@ -303,12 +304,13 @@ $('capi').onclick=editConsole;
 $('chg').onclick=e=>{e.preventDefault();editConsole()};
 $('retry').onclick=e=>{e.preventDefault();$('cst').textContent='connecting';cpoll()};
 // ---- console panel: polled from the browser, 5 s, only while RUNNING and visible
+function setOk(b){$('con').classList.toggle('ok',b);document.querySelector('.card').classList.toggle('ok',b)}
 function setRunning(on){
  if(on==running)return;running=on;$('con').classList.toggle('show',on);
  if(ct){clearInterval(ct);ct=null}
- if(on){cpoll();ct=setInterval(cpoll,5000)}else $('con').classList.remove('ok');
+ if(on){cpoll();ct=setInterval(cpoll,5000)}else setOk(false);
 }
-function noCon(msg){$('con').classList.remove('ok');$('cst').textContent='offline';$('nc').textContent=msg;
+function noCon(msg){setOk(false);$('cst').textContent='offline';$('nc').textContent=msg;
  conState=null;if(running)showState('RUNNING')}
 const fmt=(v,d=0)=>v==null?'–':Number(v).toFixed(d);
 async function cpoll(){
@@ -317,7 +319,7 @@ async function cpoll(){
  try{
   const c=new AbortController(),tm=setTimeout(()=>c.abort(),4000);
   const r=await fetch(api+'/api/status',{cache:'no-store',signal:c.signal});clearTimeout(tm);
-  const d=await r.json();render(d);$('con').classList.add('ok');
+  const d=await r.json();render(d);setOk(true);
   $('cst').textContent=d.asleep?'asleep':'live';
  }catch(e){noCon('bc250-api is not answering at '+api.replace(/^https?:[/][/]/,'')+' (still booting, or not installed).')}
 }
@@ -341,7 +343,7 @@ function render(d){
 const OPTS={
  cu:{n:'Compute units',v:['24','40'],h:t=>t.cu.live+' routed'},
  cores:{n:'CPU cores',v:['6','8'],h:t=>t.cores.visible+' visible, needs a warm reboot'},
- 'cores-auto-reboot':{n:'Auto reboot for 8 cores',v:['on','off'],h:t=>'a cold boot comes up with 6; reboots once at boot'},
+ 'cores-auto-reboot':{n:'Auto reboot for 8 cores',v:['on','off'],h:t=>'cold boot gives 6, then one auto reboot'},
  hud:{n:'HUD line',v:['on','off'],h:t=>'MangoHud overlay level 1'},
  'gpu-min':{n:'GPU floor',s:['500','700','1000','1175'],u:' MHz',h:t=>'now '+(t.gpu.cur_mhz_estimated?'~':'')+t.gpu.cur_mhz+' MHz'},
  'gpu-max':{n:'GPU ceiling',s:['1500','1700','1850','2000'],u:' MHz',h:t=>'2000 runs hotter'},
