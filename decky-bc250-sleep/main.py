@@ -58,6 +58,32 @@ def user_cmd(user, uid, cmd):
                 "DISPLAY=:0", f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus"] + cmd)
 
 
+def sink_by_name(user, uid, name):
+    """PipeWire node id of the sink with this node.name, or None while it is absent (e.g. HDMI audio
+    disappears while the TV is asleep and comes back with a new id)."""
+    rc, out = user_cmd(user, uid, ["pw-dump"])
+    if rc != 0:
+        return None
+    try:
+        for o in json.loads(out):
+            p = o.get("info", {}).get("props", {})
+            if p.get("media.class") == "Audio/Sink" and p.get("node.name") == name:
+                return o["id"]
+    except ValueError:
+        pass
+    return None
+
+
+def default_sink_name(user, uid):
+    rc, out = user_cmd(user, uid, ["wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"])
+    if rc != 0:
+        return None
+    for line in out.splitlines():
+        if "node.name" in line and "=" in line:
+            return line.split("=", 1)[1].strip().strip('"')
+    return None
+
+
 def proc_cmdline(pid):
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
@@ -233,6 +259,7 @@ class Plugin:
                 rc2, out2 = user_cmd(user, uid, ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"])
                 decky.logger.info("mute rc=%s %s", rc2, out2)
                 st["muted_by_us"] = rc2 == 0
+                st["sink_name"] = default_sink_name(user, uid)  # unmute this exact device on wake
 
         rc, out = user_cmd(user, uid, ["gamescopectl", "drm_sleep_external_screen", "1"])
         decky.logger.info("screen off rc=%s %s", rc, out[-120:])
@@ -253,14 +280,7 @@ class Plugin:
         pids = sorted(st.get("pids", []))  # parents first on the way back
         n = signal_pids(pids, signal.SIGCONT)
         if st.get("muted_by_us") and user:
-            # The HDMI/DP audio sink vanishes while the display is asleep and comes back a moment
-            # after it wakes, so the default sink can be invalid for the first second: retry.
-            for attempt in range(6):
-                rc, out = user_cmd(user, uid, ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"])
-                decky.logger.info("unmute attempt %d rc=%s %s", attempt + 1, rc, out)
-                if rc == 0:
-                    break
-                time.sleep(0.5)
+            asyncio.get_event_loop().create_task(self._unmute_later(user, uid, st.get("sink_name")))
         save_state(None)
         if self.watcher_task and not self.watcher_task.done():
             self.watcher_task.cancel()
@@ -273,6 +293,31 @@ class Plugin:
         except Exception as e:  # noqa: BLE001
             decky.logger.warning("emit woke failed: %s", e)
         return {"ok": True, "output": f"awake, thawed {n} processes"}
+
+    async def _unmute_later(self, user, uid, sink_name):
+        """The HDMI/DP sink vanishes while the TV is asleep and re-appears with a new node id a moment
+        after wake; WirePlumber may then re-apply the saved muted state on the new node. So: wait for
+        the sink to come back (by node.name), unmute it, and re-assert a few times over the next
+        seconds. Runs in the background so wake() itself stays fast."""
+        deadline = time.time() + 12
+        reasserts = [0.0, 1.5, 3.0, 5.0]
+        first_ok = None
+        while time.time() < deadline:
+            target = None
+            if sink_name:
+                nid = sink_by_name(user, uid, sink_name)
+                if nid is not None:
+                    target = str(nid)
+            if target is None:
+                target = "@DEFAULT_AUDIO_SINK@"
+            rc, out = user_cmd(user, uid, ["wpctl", "set-mute", target, "0"])
+            decky.logger.info("unmute %s rc=%s %s", target, rc, out[:80])
+            if rc == 0:
+                if first_ok is None:
+                    first_ok = time.time()
+                if time.time() - first_ok >= reasserts[-1]:
+                    return
+            await asyncio.sleep(0.5 if first_ok is None else 1.5)
 
     async def _watch_input(self):
         """Wake on the first key/button press on any input device (after a short grace period)."""

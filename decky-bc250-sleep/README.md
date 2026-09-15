@@ -36,7 +36,7 @@ Requires Decky Loader. On Bazzite make Decky's binary readable first:
 | Option | Default | Effect |
 |--------|---------|--------|
 | Freeze the running game | on | `SIGSTOP`/`SIGCONT` the game found under Steam's `reaper SteamLaunch AppId=N` |
-| Mute audio | on | `wpctl set-mute` on the default sink; restored on wake (retried, the HDMI sink is gone while the TV sleeps) |
+| Mute audio | on | `wpctl set-mute` on the default sink; on wake the same sink is unmuted **by node name** (the HDMI sink disappears while the TV sleeps and returns with a new id), re-asserted for a few seconds because WirePlumber may re-apply the saved muted state |
 | Wake on any input | on | backend watches every `/dev/input/event*` for a key/button press (2 s grace after sleeping) |
 | Use Steam's Sleep button | on | wraps `SuspendPC` + `systemctl mask sleep.target suspend.target …`; off restores both |
 
