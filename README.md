@@ -371,7 +371,10 @@ How to trigger it:
   The plugin replaces the `SuspendPC` call Steam makes and, as a safety net, masks the systemd sleep
   units so logind refuses any suspend request ("Unit suspend.target is masked, refusing operation")
   instead of hanging the board. Verified on this build: Steam's Sleep runs the fake sleep, nothing
-  reaches logind.
+  reaches logind, and Sleep stays listed in the power menu with the units masked. If Decky ever fails
+  to inject on a boot, the menu's Sleep falls through to the masked units and simply does nothing,
+  which is still harmless. **Leave the option on:** switching it off removes both the replacement and
+  the mask, and Steam's Sleep becomes the real, board-hanging suspend again.
 * The **Sleep now** button in the plugin's own panel (Quick Access → Decky → BC-250 Sleep).
 
 Install like the tuning plugin (it is prebuilt):
@@ -699,8 +702,10 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
 * **Sleep and hibernation are not supported.** The BC-250 firmware exposes no S3 state, and the S3
   sleep path has not been reverse-engineered yet, so there is nothing for the kernel to use; the only
   option it offers, suspend-to-idle, hangs the board and needs a power cut. Hibernation (S4) is
-  advertised but buggy and is not usable either. Treat the Sleep entry in Steam's power menu as broken:
-  always use **Shutdown**, and let the ESP32 circuit power the PSU down.
+  advertised but buggy and is not usable either. Without the BC-250 Sleep plugin the Sleep entry in
+  Steam's power menu hangs the board; with it installed (§4.5) that entry runs the fake sleep and the
+  real suspend is masked. For powering down, always use **Shutdown** and let the ESP32 circuit cut
+  the PSU.
 * **The image ships no VRAM tool.** `bc250memcfg` writing the split into CMOS is the way on the stock
   BIOS; the alternative is a modded BIOS.
 * **40 CU and 8 cores are a silicon lottery.** They work on this board; they will not work on every

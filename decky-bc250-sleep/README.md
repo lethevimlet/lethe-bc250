@@ -12,6 +12,11 @@ Part of [lethe-bc250](../README.md). A fake sleep for the AMD BC-250, which has 
 
 The board itself stays on at its idle power; this is a pause with quick resume, not a power saving.
 
+Sleep stays listed in Steam's power menu while the units are masked. If Decky fails to inject on a
+boot, the menu's Sleep falls through to the masked units and does nothing (harmless). Turning the
+*Use Steam's Sleep button* option off restores both the original call and the units, i.e. the real,
+board-hanging suspend: leave it on.
+
 ## Install
 
 ```bash
