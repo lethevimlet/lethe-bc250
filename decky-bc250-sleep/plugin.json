@@ -1,0 +1,11 @@
+{
+  "name": "BC-250 Sleep",
+  "author": "lethe-bc250 contributors",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["bc250", "sleep", "pause", "quick-resume", "root"],
+    "description": "Fake sleep for the AMD BC-250 (which has no working S3): freeze the game, mute, TV off, wake on any button.",
+    "image": ""
+  }
+}

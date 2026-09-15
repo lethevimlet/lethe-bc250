@@ -22,9 +22,12 @@ The small circuit in [§5](#5-soft-power-control-with-an-esp32) fixes that:
   it off.
 * **Remote on/off over the web.** The ESP32 serves a small page on your LAN (and a REST API) to power
   the console on from the sofa or another room, and to hard-cut it if it ever hangs.
-* **Not sleep.** Suspend and hibernation do not work on the BC-250 (the S3 path has not been
-  reverse-engineered, suspend-to-idle hangs, hibernation is buggy), so Sleep is off the table. A clean
-  shutdown plus a one-press start is the replacement, and it boots quickly from NVMe.
+* **Not real sleep.** Suspend and hibernation do not work on the BC-250 (the S3 path has not been
+  reverse-engineered, suspend-to-idle hangs, hibernation is buggy). A clean shutdown plus a one-press
+  start is the replacement, and it boots quickly from NVMe. For "pause and come back later" there is
+  the **BC-250 Sleep** Decky plugin ([§4.5](#45-fake-sleep-the-bc-250-sleep-plugin)): it freezes the
+  game, mutes, turns the TV off and wakes on any button, and it takes over Steam's Sleep entry so the
+  real, board-hanging suspend can never be triggered.
 
 For everything about the board itself (BIOS, pinouts, VRAM, power, kernel, governor), the
 [AMD BC-250 community documentation](https://elektricm.github.io/amd-bc250-docs/) by elektricM is the
@@ -36,7 +39,7 @@ reference this guide leans on. Start there if something here is not covered.
 1. [Components](#1-components)
 2. [Hardware preparation](#2-hardware-preparation) — heatsink lid, power cable
 3. [Install Bazzite and the 62fixolab BC-250 image](#3-install-bazzite-and-the-62fixolab-bc-250-image)
-4. [Tuning: `bc250-tune`](#4-tuning-bc250-tune) — VRAM split, clocks, 40 CU, 8 cores, HUD, resolution, Steam menu plugin
+4. [Tuning: `bc250-tune`](#4-tuning-bc250-tune) — VRAM split, clocks, 40 CU, 8 cores, HUD, resolution, Steam menu plugin, fake sleep plugin
 5. [Soft power control with an ESP32](#5-soft-power-control-with-an-esp32) — circuit, flashing, OTA, web page
 6. [3D-printed case](#6-3d-printed-case)
 7. [Things we learned](#7-things-we-learned)
@@ -330,6 +333,46 @@ from. So the preset lists only `fps` and `exec`, sets `fps_text=·` to drop the 
 `frametime=0` last, where it hides the ms value without adding a column. One `|` between the FPS and
 the rest is unavoidable. To change the line, edit the `printf` in `hud_stats()` in the script; to
 preview layouts without a game, run `mangohud glxgears` under `Xvfb` and screenshot it.
+
+### 4.5 Fake sleep: the BC-250 Sleep plugin
+
+The board cannot sleep, and Steam's **Sleep** entry hangs it (logind suspend → suspend-to-idle → never
+wakes; only a power cut recovers). [`decky-bc250-sleep/`](decky-bc250-sleep/) is a second Decky
+plugin that gives you the thing you actually wanted from Sleep, a quick pause-and-resume, and makes the
+real Sleep harmless:
+
+| Step | What happens |
+|------|--------------|
+| Sleep | the running game's whole process tree is frozen (`SIGSTOP`, nothing rendered, GPU drops to its idle clock), audio is muted, and the TV is put to sleep through gamescope (`drm_sleep_external_screen`, real DPMS off) |
+| While asleep | the board stays on at its idle package power (~32 W SoC, ~75 W at the wall); the TV is dark and the fans quiet. It is a pause, not a power saving |
+| Wake | the first button press on any controller, keyboard or mouse turns the TV back on, thaws the game and unmutes; you are back exactly where you left off |
+
+How to trigger it:
+
+* **Steam's own Sleep entry** in the power menu (on by default, option *Use Steam's Sleep button*).
+  The plugin replaces the `SuspendPC` call Steam makes and, as a safety net, masks the systemd sleep
+  units so logind refuses any suspend request ("Unit suspend.target is masked, refusing operation")
+  instead of hanging the board. Verified on this build: Steam's Sleep runs the fake sleep, nothing
+  reaches logind.
+* The **Sleep now** button in the plugin's own panel (Quick Access → Decky → BC-250 Sleep).
+
+Install like the tuning plugin (it is prebuilt):
+
+```bash
+cd lethe-bc250/decky-bc250-sleep
+sudo mkdir -p ~/homebrew/plugins/bc250-sleep
+sudo cp -r plugin.json package.json main.py LICENSE dist ~/homebrew/plugins/bc250-sleep/
+sudo chown -R root:root ~/homebrew/plugins/bc250-sleep
+sudo systemctl restart plugin_loader
+```
+
+Notes: it runs as root (it reads `/dev/input` and signals the game's processes). The game is found by
+Steam's launcher shape (`reaper SteamLaunch AppId=N`), so only Steam-launched games are frozen; the
+Steam UI itself keeps running, which is what makes the wake button work. Some games dislike being
+frozen for very long (network sessions time out, anti-cheat may complain), same as with the store's
+Pause Games plugin. If Decky is ever restarted or the plugin reloaded while asleep, it wakes everything
+first so nothing stays frozen. The HDMI audio sink disappears while the TV is asleep, so the unmute is
+retried for a moment after wake.
 
 ---
 
@@ -654,6 +697,10 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
 * **No CPU idle states.** The BIOS tables name the processors differently from the C-state table,
   so the kernel drops it. Idle package power is ~32 W with the GPU at 500 MHz; the fixed-clock GDDR6
   is the floor.
+* **Steam's Sleep is just a logind suspend.** With `sleep.target`/`suspend.target` masked, logind
+  refuses it harmlessly and Steam carries on; that is the safety net the sleep plugin relies on. The
+  suspend hooks Pause Games registers (`RegisterForOnSuspendRequest`) do not exist on this Steam
+  build; wrapping `SteamClient.System.SuspendPC` from a Decky plugin does work.
 * **MangoHud in Gaming Mode ignores `MangoHud.conf`.** Steam selects preset 1–4 from the Performance
   Overlay slider; user presets live in `~/.config/MangoHud/presets.conf`.
 * **Decky Loader and `LD_LIBRARY_PATH`.** Decky's PyInstaller bundle leaks its library path to child

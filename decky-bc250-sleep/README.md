@@ -1,0 +1,45 @@
+# BC-250 Sleep (Decky plugin)
+
+Part of [lethe-bc250](../README.md). A fake sleep for the AMD BC-250, which has no working suspend:
+
+1. **Sleep** freezes the running Steam game (`SIGSTOP` on its whole process tree), mutes audio and puts
+   the TV to sleep through gamescope (`drm_sleep_external_screen 1`, real DPMS off).
+2. **Wake** on the first button press of any controller/keyboard/mouse: TV on, game thawed
+   (`SIGCONT`), audio back.
+3. **Steam's Sleep entry is taken over** (default on): the plugin replaces `SteamClient.System.SuspendPC`
+   with the fake sleep and masks the systemd sleep units, so the real suspend, which hangs the board,
+   can never run.
+
+The board itself stays on at its idle power; this is a pause with quick resume, not a power saving.
+
+## Install
+
+```bash
+sudo mkdir -p ~/homebrew/plugins/bc250-sleep
+sudo cp -r plugin.json package.json main.py LICENSE dist ~/homebrew/plugins/bc250-sleep/
+sudo chown -R root:root ~/homebrew/plugins/bc250-sleep
+sudo systemctl restart plugin_loader   # then Quick Access → Decky → BC-250 Sleep
+```
+
+Requires Decky Loader. On Bazzite make Decky's binary readable first:
+`sudo chmod a+rx ~/homebrew/services ~/homebrew/services/PluginLoader`.
+
+## Options
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| Freeze the running game | on | `SIGSTOP`/`SIGCONT` the game found under Steam's `reaper SteamLaunch AppId=N` |
+| Mute audio | on | `wpctl set-mute` on the default sink; restored on wake (retried, the HDMI sink is gone while the TV sleeps) |
+| Wake on any input | on | backend watches every `/dev/input/event*` for a key/button press (2 s grace after sleeping) |
+| Use Steam's Sleep button | on | wraps `SuspendPC` + `systemctl mask sleep.target suspend.target …`; off restores both |
+
+Settings live in Decky's settings dir (`~/homebrew/settings/bc250-sleep/settings.json`). State while asleep is in
+`/run/bc250-sleep/state.json`; if the plugin is reloaded while asleep it wakes everything first.
+
+## Build
+
+```bash
+pnpm i && pnpm run build      # dist/index.js (prebuilt copy is committed)
+```
+
+`main.py` needs no build. The plugin runs as root (`"flags": ["root"]`).
