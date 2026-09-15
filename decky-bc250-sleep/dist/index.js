@@ -16,6 +16,8 @@ if (api._version != API_VERSION) {
     console.warn(`[@decky/api] Requested API version ${API_VERSION} but the running loader only supports version ${api._version}. Some features may not work.`);
 }
 const callable = api.callable;
+const addEventListener = api.addEventListener;
+const removeEventListener = api.removeEventListener;
 const toaster = api.toaster;
 const definePlugin = (fn) => {
     return (...args) => {
@@ -85,6 +87,23 @@ function FaMoon (props) {
   return GenIcon({"attr":{"viewBox":"0 0 512 512"},"child":[{"tag":"path","attr":{"d":"M283.211 512c78.962 0 151.079-35.925 198.857-94.792 7.068-8.708-.639-21.43-11.562-19.35-124.203 23.654-238.262-71.576-238.262-196.954 0-72.222 38.662-138.635 101.498-174.394 9.686-5.512 7.25-20.197-3.756-22.23A258.156 258.156 0 0 0 283.211 0c-141.309 0-256 114.511-256 256 0 141.309 114.511 256 256 256z"},"child":[]}]})(props);
 }
 
+// When Sleep was chosen from Steam's power menu, Steam has already put itself into its "suspending"
+// state (black screen, suspend animation) before calling SuspendPC, and it only leaves that state on
+// a resume event that a real suspend would produce. On wake we produce it ourselves.
+function clearSteamSuspendState() {
+    try {
+        if (typeof SuspendResumeStore === "undefined" || !SuspendResumeStore?.m_bSuspending)
+            return;
+        if (typeof SuspendResumeStore.OnResumeFromSuspend === "function")
+            SuspendResumeStore.OnResumeFromSuspend();
+        else if (typeof SuspendResumeStore.InitiateResume === "function")
+            SuspendResumeStore.InitiateResume();
+        console.log("[bc250-sleep] cleared Steam suspend state");
+    }
+    catch (e) {
+        console.error("[bc250-sleep] clearing Steam suspend state failed", e);
+    }
+}
 const getStatus = callable("status");
 const setSetting = callable("set_setting");
 const sleepNow = callable("sleep");
@@ -155,12 +174,16 @@ function Content() {
 }
 var index = definePlugin(() => {
     getStatus().then((st) => installSuspendHook(!!st?.settings?.hook_steam_sleep)).catch(console.error);
+    const wokeListener = addEventListener("bc250_sleep_woke", () => clearSteamSuspendState());
     return {
         name: "BC-250 Sleep",
         titleView: SP_JSX.jsx("div", { className: DFL.staticClasses.Title, children: "BC-250 Sleep" }),
         content: SP_JSX.jsx(Content, {}),
         icon: SP_JSX.jsx(FaMoon, {}),
-        onDismount() { installSuspendHook(false); },
+        onDismount() {
+            removeEventListener("bc250_sleep_woke", wokeListener);
+            installSuspendHook(false);
+        },
     };
 });
 

@@ -8,7 +8,9 @@ Part of [lethe-bc250](../README.md). A fake sleep for the AMD BC-250, which has 
    (`SIGCONT`), audio back.
 3. **Steam's Sleep entry is taken over** (default on): the plugin replaces `SteamClient.System.SuspendPC`
    with the fake sleep and masks the systemd sleep units, so the real suspend, which hangs the board,
-   can never run.
+   can never run. Steam still shows its suspend animation and goes black; on wake the backend emits
+   `bc250_sleep_woke` and the frontend calls `SuspendResumeStore.OnResumeFromSuspend()`, which is the
+   event a real resume would have raised, so Steam's UI comes back.
 
 The board itself stays on at its idle power; this is a pause with quick resume, not a power saving.
 

@@ -375,6 +375,9 @@ How to trigger it:
   to inject on a boot, the menu's Sleep falls through to the masked units and simply does nothing,
   which is still harmless. **Leave the option on:** switching it off removes both the replacement and
   the mask, and Steam's Sleep becomes the real, board-hanging suspend again.
+  Steam plays its own suspend animation and goes black before it calls the OS, and it only comes back
+  on the resume event a real suspend would produce; on wake the plugin raises that event itself
+  (`SuspendResumeStore.OnResumeFromSuspend`), so the home screen returns instead of staying black.
 * The **Sleep now** button in the plugin's own panel (Quick Access → Decky → BC-250 Sleep).
 
 Install like the tuning plugin (it is prebuilt):

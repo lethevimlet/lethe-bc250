@@ -266,6 +266,12 @@ class Plugin:
             self.watcher_task.cancel()
         self.watcher_task = None
         decky.logger.info("woke: screen on, thawed %d/%d, unmuted=%s", n, len(pids), st.get("muted_by_us"))
+        # Tell the frontend, which clears Steam's own "suspending" black screen if Sleep came from
+        # Steam's power menu (Steam waits for a resume event that a real suspend would have produced).
+        try:
+            await decky.emit("bc250_sleep_woke")
+        except Exception as e:  # noqa: BLE001
+            decky.logger.warning("emit woke failed: %s", e)
         return {"ok": True, "output": f"awake, thawed {n} processes"}
 
     async def _watch_input(self):

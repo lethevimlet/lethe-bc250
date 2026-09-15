@@ -1,9 +1,24 @@
 import { ButtonItem, Field, PanelSection, PanelSectionRow, ToggleField, staticClasses } from "@decky/ui";
-import { callable, definePlugin, toaster } from "@decky/api";
+import { addEventListener, callable, definePlugin, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaMoon } from "react-icons/fa";
 
 declare const SteamClient: any;
+declare const SuspendResumeStore: any;
+
+// When Sleep was chosen from Steam's power menu, Steam has already put itself into its "suspending"
+// state (black screen, suspend animation) before calling SuspendPC, and it only leaves that state on
+// a resume event that a real suspend would produce. On wake we produce it ourselves.
+function clearSteamSuspendState() {
+  try {
+    if (typeof SuspendResumeStore === "undefined" || !SuspendResumeStore?.m_bSuspending) return;
+    if (typeof SuspendResumeStore.OnResumeFromSuspend === "function") SuspendResumeStore.OnResumeFromSuspend();
+    else if (typeof SuspendResumeStore.InitiateResume === "function") SuspendResumeStore.InitiateResume();
+    console.log("[bc250-sleep] cleared Steam suspend state");
+  } catch (e) {
+    console.error("[bc250-sleep] clearing Steam suspend state failed", e);
+  }
+}
 
 type Settings = { pause_game: boolean; mute_audio: boolean; wake_on_input: boolean; hook_steam_sleep: boolean };
 type Status = {
@@ -122,11 +137,15 @@ function Content() {
 
 export default definePlugin(() => {
   getStatus().then((st) => installSuspendHook(!!st?.settings?.hook_steam_sleep)).catch(console.error);
+  const wokeListener = addEventListener<[]>("bc250_sleep_woke", () => clearSteamSuspendState());
   return {
     name: "BC-250 Sleep",
     titleView: <div className={staticClasses.Title}>BC-250 Sleep</div>,
     content: <Content />,
     icon: <FaMoon />,
-    onDismount() { installSuspendHook(false); },
+    onDismount() {
+      removeEventListener("bc250_sleep_woke", wokeListener);
+      installSuspendHook(false);
+    },
   };
 });
