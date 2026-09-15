@@ -257,6 +257,14 @@ sudo systemctl restart plugin_loader      # then restart Steam / the gaming sess
 Open the Quick Access menu → Decky (plug icon) → **BC-250 Tune**. Set the Performance Overlay slider to
 level 1 to get the HUD line.
 
+Two Decky notes for Bazzite: the `ujust` installer leaves Decky's own binary readable by root only,
+which breaks every plugin that does not run as root (the backend dies with `PermissionError:
+…/homebrew/services/PluginLoader`); fix it once with
+`sudo chmod a+rx ~/homebrew/services ~/homebrew/services/PluginLoader && sudo systemctl restart plugin_loader`.
+And the store's **Pause Games** plugin (freeze and resume a running game with SIGSTOP/SIGCONT, like
+the Steam Deck's quick suspend) works on the BC-250 once that is done; it is a nice companion since real
+sleep is not available.
+
 ### 4.2 What this build runs
 
 | Setting | Value | Why |
