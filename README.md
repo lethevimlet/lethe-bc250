@@ -79,8 +79,8 @@ The whole build, in order. Each step links to the section with the details.
    optional.
 2. **Board prep** — take the lid off the heatsink and renew the paste and pads
    ([§2.1](#21-remove-the-heatsink-lid)), cut the tabs off the power plugs and fit the cable
-   ([§2.2](#22-fit-the-power-cable-and-the-auto-power-on-jumper)). Set the AUTO_PWRON1 jumper to auto power-on and disable IOMMU
-   in the BIOS ([§3.1](#31-before-the-os)).
+   ([§2.2](#22-fit-the-power-cable-and-the-auto-power-on-jumper)). Set the AUTO_PWRON1 jumper to auto power-on, disable IOMMU and set the fan mode to
+   Default or Customize, not Full Speed, in the BIOS ([§3.1](#31-before-the-os)).
 3. **OS** — install stock Bazzite (deck), then rebase to the 62fixolab `-40cu` image and reboot
    ([§3](#3-install-bazzite-and-the-62fixolab-bc-250-image)).
 4. **Tune** — clone this repo on the BC-250 and run `sudo ./bc250-tune install`; optionally add the
@@ -179,6 +179,13 @@ The BC-250 has no power button header, so read the whole section before starting
 * **BIOS.** This build runs the **stock ASRock P3.00 BIOS**. The 62fixolab images recommend a modded
   BIOS with "512 MB dynamic VRAM" and IOMMU disabled; the VRAM split is instead set from Linux with
   `bc250memcfg` (§4), which works on the stock BIOS. **IOMMU must be disabled** in BIOS.
+* **BIOS fan mode: not Full Speed.** The BIOS offers *Default*, *Full Speed* and *Customize* for the
+  fan header. In **Full Speed** the embedded controller pins the header at 100 % and ignores every
+  PWM write from Linux, so the Sleep plugin's *Quiet the fans* option (§4.5) can never slow the
+  fans (its guard notices the rpm not dropping and gives the header back). Set **Default** or
+  **Customize**; both leave the board's own curve in charge until the plugin takes the header for a
+  fake sleep. The fans on this board run at a near-constant ~1570 rpm on the stock curve anyway,
+  idle or loaded, so Full Speed buys nothing.
 * **Auto power-on jumper.** Set the board's **AUTO_PWRON1** jumper to the auto-power-on position
   (pins 1–2). The BC-250 then boots by itself as soon as 12 V appears, which is what both the ESP32
   circuit (§5) and a plain PS_ON switch rely on; there is no power button header to press otherwise.
