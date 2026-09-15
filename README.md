@@ -42,8 +42,10 @@ any button press exactly where you left off, and it takes over Steam's Sleep ent
 board-hanging suspend can never be triggered.
 
 Recommended companion from the Decky store: **Pause Games** (freeze and resume individual games with
-SIGSTOP/SIGCONT, like the Steam Deck's quick suspend). It works on the BC-250 after the small
-permission fix in [§4.1](#41-install).
+SIGSTOP/SIGCONT, like the Steam Deck's quick suspend) for pausing one game while the console stays
+awake, for example to hop into another game and come back. It is optional: BC-250 Sleep does its own
+freezing and does not depend on it. It works on the BC-250 after the small permission fix in
+[§4.1](#41-install).
 
 For everything about the board itself (BIOS, pinouts, VRAM, power, kernel, governor), the
 [AMD BC-250 community documentation](https://elektricm.github.io/amd-bc250-docs/) by elektricM is the
@@ -386,7 +388,7 @@ Notes: it runs as root (it reads `/dev/input` and signals the game's processes).
 Steam's launcher shape (`reaper SteamLaunch AppId=N`), so only Steam-launched games are frozen; the
 Steam UI itself keeps running, which is what makes the wake button work. Some games dislike being
 frozen for very long (network sessions time out, anti-cheat may complain), same as with the store's
-Pause Games plugin. If Decky is ever restarted or the plugin reloaded while asleep, it wakes everything
+Pause Games plugin. The freezing is built in; Pause Games is not required. If Decky is ever restarted or the plugin reloaded while asleep, it wakes everything
 first so nothing stays frozen. The HDMI audio sink disappears while the TV is asleep, so the unmute is
 retried for a moment after wake.
 
