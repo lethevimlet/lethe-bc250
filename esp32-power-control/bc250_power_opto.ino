@@ -127,6 +127,9 @@ bool boardAlive() {
 
 // ---- Web page --------------------------------------------------
 // Self-contained, no CDN: the network may have no internet access.
+// Note: the Arduino prototype generator cannot see raw-string bounds and
+// treats "//" as a comment, so keep "//" out of the page: regex slashes as
+// [/][/], URL slashes as &#47;&#47;.
 // Fluid layout: single column on phones, wider card from 560px up, and a
 // compact layout when vertical space is tight (phone in landscape).
 // The console panel (stats + tune switches) talks to bc250-api on the
@@ -204,6 +207,13 @@ button:disabled{opacity:.38;cursor:not-allowed}
 select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;border-radius:9px;
  background:#22262e;color:#e6e8eb;font:inherit;font-size:.85em;max-width:48%}
 .busy .tune,.busy .pend{opacity:.5;pointer-events:none}
+/* tiles and switches only after a successful poll; a notice with retry otherwise */
+#con:not(.ok) .tiles,#con:not(.ok) .pend,#con:not(.ok) .tune{display:none}
+#nocon{display:none;color:#8b929c;font-size:.8em}
+#con:not(.ok) #nocon{display:block}
+#nocon p{margin:0 0 8px}#nocon p:last-child{margin:0}
+#nocon a{color:#aab2bd;text-decoration:underline dotted;text-underline-offset:3px}
+#nocon b{color:#c5cad1;font-weight:600}
 @media (min-width:560px){.btns{grid-template-columns:1fr 1fr}.card{max-width:520px}}
 @media (max-height:460px) and (orientation:landscape){
  body{align-items:flex-start}
@@ -231,6 +241,10 @@ select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;borde
 seconds. For a clean shutdown, use the operating system.</p>
 <div id="con">
 <div class="hd"><h2>Console</h2><span class="meta" id="cst">connecting</span></div>
+<div id="nocon"><p id="nc"></p>
+<p><a href="#" id="retry">retry</a> &nbsp;·&nbsp; <a href="#" id="chg">change address</a></p>
+<p>Live stats and the tune switches need the <b>bc250-api</b> service on the BC-250: see
+<a href="https:&#47;&#47;github.com/lethevimlet/lethe-bc250#46-stats-and-switches-over-the-network-bc250-api" target="_blank" rel="noopener">the README, §4.6</a>.</p></div>
 <div class="tiles">
 <div class="tile"><div class="k">FPS</div><div class="v" id="fps">–</div><div class="s" id="game"></div></div>
 <div class="tile"><div class="k">GPU</div><div class="v" id="gmhz">–</div><div class="s" id="gtemp"></div></div>
@@ -264,32 +278,38 @@ async function poll(){
   $('on').disabled=(d.state!='OFF');
   $('off').disabled=(d.state=='OFF'||d.state=='STOPPING');
   api=new URLSearchParams(location.search).get('console')||d.console||null;
-  $('capi').textContent='console '+(d.console?d.console.replace(/^https?:\/\//,''):'off');
-  setRunning(d.state=='RUNNING'&&!!api);
+  $('capi').textContent='console '+(d.console?d.console.replace(/^https?:[/][/]/,''):'not set');
+  setRunning(d.state=='RUNNING');
  }catch(e){$('st').textContent='offline';setRunning(false);}
 }
 $('on').onclick=async()=>{await fetch('/rest/on');setTimeout(poll,300)};
 $('off').onclick=async()=>{if(!confirm('Hard-cut power to the machine?'))return;
  await fetch('/rest/off');setTimeout(poll,300)};
 // The bc250-api address lives in the ESP32's NVS; empty restores the compiled default.
-$('capi').onclick=async()=>{const v=prompt('bc250-api address (empty = default)',api||'');
+// Editable in every state, so the service can be installed on the console later.
+async function editConsole(){const v=prompt('bc250-api address (empty = default)',api||'');
  if(v===null)return;const r=await fetch('/rest/console?url='+encodeURIComponent(v.trim()));
- if(!r.ok)alert('not saved: use http://host:8250');setRunning(false);poll()};
+ if(!r.ok)alert('not saved: use http://host:8250');setRunning(false);poll()}
+$('capi').onclick=editConsole;
+$('chg').onclick=e=>{e.preventDefault();editConsole()};
+$('retry').onclick=e=>{e.preventDefault();$('cst').textContent='connecting';cpoll()};
 // ---- console panel: polled from the browser, 5 s, only while RUNNING and visible
 function setRunning(on){
- if(on==running)return;running=on;$('con').className=on?'show':'';
+ if(on==running)return;running=on;$('con').classList.toggle('show',on);
  if(ct){clearInterval(ct);ct=null}
- if(on){cpoll();ct=setInterval(cpoll,5000)}
+ if(on){cpoll();ct=setInterval(cpoll,5000)}else $('con').classList.remove('ok');
 }
+function noCon(msg){$('con').classList.remove('ok');$('cst').textContent='offline';$('nc').textContent=msg}
 const fmt=(v,d=0)=>v==null?'–':Number(v).toFixed(d);
 async function cpoll(){
- if(!api||!running||document.hidden)return;
+ if(!running||document.hidden)return;
+ if(!api){noCon('No bc250-api address is set.');return}
  try{
   const c=new AbortController(),tm=setTimeout(()=>c.abort(),4000);
   const r=await fetch(api+'/api/status',{cache:'no-store',signal:c.signal});clearTimeout(tm);
-  const d=await r.json();render(d);
+  const d=await r.json();render(d);$('con').classList.add('ok');
   $('cst').textContent=d.asleep?'asleep':'live';
- }catch(e){$('cst').textContent='waiting for console';}
+ }catch(e){noCon('bc250-api is not answering at '+api.replace(/^https?:[/][/]/,'')+' (still booting, or not installed).')}
 }
 function render(d){
  $('fps').textContent=d.fps==null?'–':Math.round(d.fps);
@@ -348,7 +368,7 @@ function renderTune(t){
  $('rb').style.display=p.reboot&&p.reboot!=='0'?'':'none';
  $('rs').style.display=p.session_restart&&p.session_restart!=='0'?'':'none';
 }
-function setBusy(b){busy=b;$('con').className='show'+(b?' busy':'')}
+function setBusy(b){busy=b;$('con').classList.toggle('busy',b)}
 async function tset(k,v){
  setBusy(true);$('cst').textContent='applying '+k+'='+v;
  try{const r=await fetch(api+'/api/tune/set',{method:'POST',headers:{'Content-Type':'application/json'},

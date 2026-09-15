@@ -649,7 +649,9 @@ running game, GPU clock and temperature, CPU temperature with cores and clock, S
 total power, fan rpm and VRAM use. Below them are the `bc250-tune` switches (compute units, cores,
 HUD, GPU floor and ceiling, VRAM split, resolution): a tap runs `bc250-tune set` on the console, and
 when a change still needs a warm reboot or a session restart a notice appears with the button for
-it. The panel says `waiting for console` while the OS boots and `asleep` during a fake sleep.
+it. The tiles and switches only appear once `bc250-api` answers; until then (the OS still booting,
+or the service not installed) the panel shows a short notice with **retry** and **change address**
+links and a pointer to §4.6, and it says `asleep` during a fake sleep.
 The footer's `console …` entry shows the `bc250-api` address; tap it to change it (`GET
 /rest/console?url=http://host:8250`, stored in NVS, empty restores the compiled default).
 
