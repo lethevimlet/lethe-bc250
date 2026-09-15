@@ -20,7 +20,7 @@ function clearSteamSuspendState() {
   }
 }
 
-type Settings = { pause_game: boolean; mute_audio: boolean; wake_on_input: boolean; hook_steam_sleep: boolean };
+type Settings = { pause_game: boolean; mute_audio: boolean; wake_on_input: boolean; hook_steam_sleep: boolean; quiet_fans: boolean };
 type Status = {
   asleep: boolean;
   since: number | null;
@@ -29,6 +29,8 @@ type Status = {
   settings: Settings;
   sleep_masked: boolean;
   user: string | null;
+  fan_control: boolean;
+  fan_rpm: number | null;
 };
 type Result = { ok: boolean; output: string };
 
@@ -120,6 +122,17 @@ function Content() {
         </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField label="Wake on any input" description="Any controller, keyboard or mouse button press wakes" checked={s.wake_on_input} disabled={busy} onChange={toggle("wake_on_input")} />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Quiet the fans"
+            description={`Fan header to ~25% duty while asleep. Back to the board's curve on wake, and at once if a die passes 65 °C, the fan stalls or it does not slow down. ${
+              st.fan_control ? `Fan now ${st.fan_rpm} rpm.` : "No controllable fan header found (needs the nct6687 driver)."
+            }`}
+            checked={s.quiet_fans}
+            disabled={busy}
+            onChange={toggle("quiet_fans")}
+          />
         </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField

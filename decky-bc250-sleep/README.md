@@ -12,8 +12,9 @@ Part of [lethe-bc250](../README.md). A fake sleep for the AMD BC-250, which has 
    `bc250_sleep_woke` and the frontend calls `SuspendResumeStore.OnResumeFromSuspend()`, which is the
    event a real resume would have raised, so Steam's UI comes back.
 
-The board itself stays fully powered at its idle power: fans keep spinning and the board LEDs stay lit;
-only the TV is dark. This is a pause with quick resume, not a power saving. **Wake with a controller,
+The board itself stays fully powered at its idle power and the board LEDs stay lit; only the TV is
+dark. The board's own fan curve barely slows the fans when the chip idles, so the plugin lowers the fan
+header itself while asleep (see *Quiet the fans* below). This is a pause with quick resume, not a power saving. **Wake with a controller,
 keyboard or mouse button, never the case power button:** with the ESP32 power circuit the board reads
 as running, so a short press is ignored and a five-second hold hard-cuts the PSU.
 
@@ -41,6 +42,7 @@ Requires Decky Loader. On Bazzite make Decky's binary readable first:
 | Freeze the running game | on | `SIGSTOP`/`SIGCONT` the game found under Steam's `reaper SteamLaunch AppId=N` |
 | Mute audio | on | `wpctl set-mute` on the default sink; on wake the same sink is unmuted **by node name** (the HDMI sink disappears while the TV sleeps and returns with a new id), re-asserted for a few seconds because WirePlumber may re-apply the saved muted state |
 | Wake on any input | on | backend watches every `/dev/input/event*` for a key/button press (2 s grace after sleeping); rescans once a second so a controller that Steam powered off on sleep and that comes back as a new node still wakes |
+| Quiet the fans | on | the NCT6686D fan header (`pwmN` of the out-of-tree **nct6687** driver, the in-kernel nct6683 is read-only) goes to ~25 % duty while asleep; the previous mode is restored on wake, on plugin unload and after a loader restart while asleep. A guard task hands the header back at once if the CPU or GPU die passes 65 °C, if the fan stalls, if a sensor stops reading, or if the fan did not slow down within 10 s (the EC ignores the duty when the BIOS fan mode is *Full Speed*: set it to *Default* or *Customize*). Nothing is touched when no controllable header is found |
 | Use Steam's Sleep button | on | wraps `SuspendPC` + `systemctl mask sleep.target suspend.target …`; off restores both |
 
 Settings live in Decky's settings dir (`~/homebrew/settings/bc250-sleep/settings.json`). State while asleep is in

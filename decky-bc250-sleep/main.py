@@ -25,11 +25,21 @@ STATE_DIR = "/run/bc250-sleep"
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 SETTINGS_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
 SLEEP_UNITS = ["sleep.target", "suspend.target", "hybrid-sleep.target", "hibernate.target", "suspend-then-hibernate.target"]
-DEFAULTS = {"pause_game": True, "mute_audio": True, "wake_on_input": True, "hook_steam_sleep": True}
+DEFAULTS = {"pause_game": True, "mute_audio": True, "wake_on_input": True, "hook_steam_sleep": True, "quiet_fans": True}
 CLEAN_ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"}
 EV_KEY = 0x01
 EVENT_FMT = "llHHi"  # struct input_event on 64-bit
 EVENT_SIZE = struct.calcsize(EVENT_FMT)
+
+# Fan header while asleep. The BC-250's fans hang off the Nuvoton NCT6686D; only the out-of-tree
+# nct6687 driver exposes a writable pwmN. The board's own curve barely changes speed between idle
+# and load, so the idle chip alone does not make the box quieter: we lower the duty ourselves.
+FAN_CHIPS = ("nct6687", "nct6686", "nct6683")
+FAN_SLEEP_PWM = 64  # ~25 % duty
+FAN_MAX_TEMP_C = 65.0  # CPU or GPU die above this while asleep -> back to the board's curve
+FAN_MIN_RPM = 300  # slower than this once settled -> stalled -> back to the board's curve
+FAN_SETTLE_S = 10.0  # time the fan gets to react before the stall / no-response checks apply
+FAN_CHECK_S = 3.0
 
 
 def run(cmd, user_env=None, timeout=20):
@@ -152,6 +162,98 @@ def signal_pids(pids, sig):
     return n
 
 
+# ---------------------------------------------------------------------- fans
+def read_str(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def read_int(path):
+    try:
+        return int(read_str(path))
+    except (TypeError, ValueError):
+        return None
+
+
+def write_str(path, value):
+    with open(path, "w") as f:
+        f.write(str(value))
+
+
+def hwmon_dirs():
+    base = "/sys/class/hwmon"
+    try:
+        return [os.path.join(base, n) for n in sorted(os.listdir(base))]
+    except OSError:
+        return []
+
+
+def find_fan():
+    """The Super-IO channel driving the case fans: the one fanN tach that reports rpm and has a writable
+    pwmN. None when the nct6687 driver is not loaded or no fan spins."""
+    for h in hwmon_dirs():
+        if read_str(os.path.join(h, "name")) not in FAN_CHIPS:
+            continue
+        for n in range(1, 9):
+            rpm = read_int(os.path.join(h, f"fan{n}_input"))
+            if rpm and os.access(os.path.join(h, f"pwm{n}_enable"), os.W_OK) and os.access(os.path.join(h, f"pwm{n}"), os.W_OK):
+                return {"hwmon": h, "ch": n, "rpm": rpm}
+    return None
+
+
+def die_temps():
+    """Hottest of the CPU (k10temp) and GPU (amdgpu) die sensors in C, or None if neither reads."""
+    temps = []
+    for h in hwmon_dirs():
+        if read_str(os.path.join(h, "name")) in ("k10temp", "amdgpu"):
+            t = read_int(os.path.join(h, "temp1_input"))
+            if t is not None:
+                temps.append(t / 1000.0)
+    return max(temps) if temps else None
+
+
+def fan_restore(fan):
+    """Hand the header back: the mode it had, and the duty too if it was already manual (some other tool)."""
+    h, ch = fan["hwmon"], fan["ch"]
+    try:
+        if fan.get("enable") == 1:
+            write_str(os.path.join(h, f"pwm{ch}"), fan.get("pwm", 255))
+        write_str(os.path.join(h, f"pwm{ch}_enable"), fan.get("enable") or 2)
+        decky.logger.info("fans: pwm%d back to mode %s (%s rpm)", ch, fan.get("enable") or 2, read_int(os.path.join(h, f"fan{ch}_input")))
+        return True
+    except OSError as e:
+        decky.logger.error("fans: restore failed: %s", e)
+        return False
+
+
+def fan_quiet(fan):
+    """Lower the header to FAN_SLEEP_PWM, remembering in `fan` what to put back. Touches nothing and
+    returns False when it cannot be done safely (no die temperature to watch, already that slow)."""
+    h, ch = fan["hwmon"], fan["ch"]
+    if die_temps() is None:
+        decky.logger.info("fans: no die temperature sensor, leaving the board's curve")
+        return False
+    fan["enable"] = read_int(os.path.join(h, f"pwm{ch}_enable"))
+    fan["pwm"] = read_int(os.path.join(h, f"pwm{ch}"))
+    if fan["enable"] is None or fan["pwm"] is None:
+        return False
+    if fan["pwm"] <= FAN_SLEEP_PWM:
+        decky.logger.info("fans: already at duty %s, leaving it", fan["pwm"])
+        return False
+    try:
+        write_str(os.path.join(h, f"pwm{ch}_enable"), 1)
+        write_str(os.path.join(h, f"pwm{ch}"), FAN_SLEEP_PWM)
+    except OSError as e:
+        decky.logger.warning("fans: lowering failed (%s), restoring", e)
+        fan_restore(fan)
+        return False
+    decky.logger.info("fans: pwm%d duty %s -> %d (mode was %s, %s rpm)", ch, fan["pwm"], FAN_SLEEP_PWM, fan["enable"], fan["rpm"])
+    return True
+
+
 def load_settings():
     s = dict(DEFAULTS)
     try:
@@ -190,6 +292,7 @@ def save_state(st):
 
 class Plugin:
     watcher_task = None
+    fan_task = None
 
     # ------------------------------------------------------------------ status / settings
     async def status(self):
@@ -201,7 +304,10 @@ class Plugin:
         masked = False
         rc, out = run(["systemctl", "is-enabled", "suspend.target"])
         masked = out.strip() == "masked"
+        fan = find_fan()
         return {
+            "fan_control": fan is not None,
+            "fan_rpm": fan["rpm"] if fan else None,
             "asleep": st is not None,
             "since": st.get("since") if st else None,
             "frozen": len(st.get("pids", [])) if st else 0,
@@ -229,7 +335,20 @@ class Plugin:
         if key == "hook_steam_sleep":
             rc, out = self.apply_sleep_guard(s[key])
             return {"ok": rc == 0, "output": out}
+        if key == "quiet_fans" and not s[key]:
+            self._fan_release()  # turned off while asleep: give the header back right away
         return {"ok": True, "output": ""}
+
+    def _fan_release(self):
+        """Stop the guard and hand the fan header back to the board, if we hold it."""
+        if self.fan_task and not self.fan_task.done():
+            self.fan_task.cancel()
+        self.fan_task = None
+        st = load_state()
+        if st and st.get("fan"):
+            fan_restore(st["fan"])
+            st["fan"] = None
+            save_state(st)
 
     # ------------------------------------------------------------------ sleep
     async def sleep(self):
@@ -263,6 +382,14 @@ class Plugin:
 
         rc, out = user_cmd(user, uid, ["gamescopectl", "drm_sleep_external_screen", "1"])
         decky.logger.info("screen off rc=%s %s", rc, out[-120:])
+
+        if s["quiet_fans"]:
+            fan = find_fan()
+            if fan is None:
+                decky.logger.info("fans: no controllable fan header (nct6687 driver loaded?)")
+            elif fan_quiet(fan):
+                st["fan"] = fan
+                self.fan_task = asyncio.get_event_loop().create_task(self._fan_guard(fan))
         save_state(st)
 
         if s["wake_on_input"]:
@@ -281,6 +408,11 @@ class Plugin:
         n = signal_pids(pids, signal.SIGCONT)
         if st.get("muted_by_us") and user:
             asyncio.get_event_loop().create_task(self._unmute_later(user, uid, st.get("sink_name")))
+        if self.fan_task and not self.fan_task.done():
+            self.fan_task.cancel()  # the guard does not restore on cancel; we do it here
+        self.fan_task = None
+        if st.get("fan"):
+            fan_restore(st["fan"])
         save_state(None)
         if self.watcher_task and not self.watcher_task.done():
             self.watcher_task.cancel()
@@ -318,6 +450,37 @@ class Plugin:
                 if time.time() - first_ok >= reasserts[-1]:
                     return
             await asyncio.sleep(0.5 if first_ok is None else 1.5)
+
+    async def _fan_guard(self, fan):
+        """While asleep, keep the lowered fan honest: back to the board's curve if a die gets warm, if the
+        fan stalled, or if it never slowed down (the EC ignores the duty, e.g. BIOS fan mode on Full
+        Speed). A failed sensor read counts as a reason too. Cancelled by wake(), which restores itself."""
+        rpm_path = os.path.join(fan["hwmon"], f"fan{fan['ch']}_input")
+        t0 = time.time()
+        reason = None
+        try:
+            while reason is None:
+                await asyncio.sleep(FAN_CHECK_S)
+                temp, rpm = die_temps(), read_int(rpm_path)
+                if temp is None or rpm is None:
+                    reason = "sensor read failed"
+                elif temp >= FAN_MAX_TEMP_C:
+                    reason = f"die at {temp:.0f} C"
+                elif time.time() - t0 >= FAN_SETTLE_S:
+                    if rpm < FAN_MIN_RPM:
+                        reason = f"fan stalled ({rpm} rpm)"
+                    elif rpm > fan["rpm"] * 0.9:
+                        reason = f"fan did not slow down ({fan['rpm']} -> {rpm} rpm; BIOS fan mode on Full Speed?)"
+        except asyncio.CancelledError:
+            return
+        except Exception as e:  # noqa: BLE001
+            reason = f"guard error: {e}"
+        decky.logger.warning("fans: %s, back to the board's curve", reason)
+        fan_restore(fan)
+        st = load_state()
+        if st is not None:
+            st["fan"] = None  # nothing left for wake() to restore
+            save_state(st)
 
     async def _watch_input(self):
         """Wake on the first key/button press on any input device (after a short grace period).
