@@ -11,6 +11,8 @@ GET  /api/tune[?refresh=1]       `bc250-tune status --json`, cached 30 s
 POST /api/tune/set               {"key":"cu","value":"40"}  -> `bc250-tune set cu 40`
 POST /api/tune/reboot            -> `bc250-tune reboot`          (warm reboot, for 8 cores)
 POST /api/tune/restart-session   -> `bc250-tune restart-session` (for a resolution change)
+POST /api/sleep                  fake sleep through the BC-250 Sleep plugin (its control socket)
+POST /api/wake                   wake from it
 ```
 
 Port 8250, JSON, CORS open (`Access-Control-Allow-Origin: *`) so a page served by another host
@@ -27,7 +29,8 @@ switches need it.
   "power": {"soc_w": 31.8, "total_w": 77, "total_offset_w": 45},
   "fan":   {"rpm": 1595},
   "mem":   {"used_mb": 2601, "total_mb": 9650},
-  "uptime_s": 3436, "asleep": false, "ts": 1789491944.1,
+  "uptime_s": 3436, "asleep": false, "sleep": {"asleep": false, "since": null},
+  "game_running": {"appid": "251470", "name": "TowerFall Ascension"}, "ts": 1789491944.1,
   "tune":  { "...": "the bc250-tune status --json object: uma, gpu, cu, cores, hud, res, pending" }
 }
 ```
@@ -43,7 +46,11 @@ switches need it.
 * **power.total_w** is `soc_w + TOTAL_OFFSET_W` from `/etc/bc250-tune/config`, the same estimate
   the HUD prints.
 * **fan.rpm** is the first spinning tach of the nct6687 driver (the "Pump Fan" header on this board).
-* **asleep** is true while the BC-250 Sleep plugin holds the game frozen.
+* **game_running** is the game Steam has launched (its `reaper SteamLaunch AppId=N` process),
+  regardless of what gamescope has in focus; `focus` can flip to `steam` while the overlay is open.
+* **asleep** / **sleep** report the BC-250 Sleep plugin's fake sleep (`since` is the epoch it started).
+  `POST /api/sleep` and `/api/wake` go through the plugin's control socket
+  (`/run/bc250-sleep/ctl.sock`) and answer 503 when the plugin is not loaded.
 * **tune** is `bc250-tune status --json`, refreshed every 30 s and right after every `set`. It is
   `null` when `bc250-tune` is not installed; the POST endpoints answer 503 then.
 

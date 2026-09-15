@@ -23,6 +23,7 @@ import decky
 
 STATE_DIR = "/run/bc250-sleep"
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
+CTL_SOCK = os.path.join(STATE_DIR, "ctl.sock")  # root-only control socket, used by bc250-api
 SETTINGS_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
 SLEEP_UNITS = ["sleep.target", "suspend.target", "hybrid-sleep.target", "hibernate.target", "suspend-then-hibernate.target"]
 DEFAULTS = {"pause_game": True, "mute_audio": True, "wake_on_input": True, "hook_steam_sleep": True, "quiet_fans": True}
@@ -293,6 +294,7 @@ def save_state(st):
 class Plugin:
     watcher_task = None
     fan_task = None
+    ctl_server = None
 
     # ------------------------------------------------------------------ status / settings
     async def status(self):
@@ -549,15 +551,60 @@ class Plugin:
             for fd in list(fds):
                 drop(fd)
 
+    # ------------------------------------------------------------------ control socket
+    async def _ctl(self, reader, writer):
+        """One line in ("sleep", "wake" or "status"), one JSON line out. Lets bc250-api (and anything
+        else running as root on the box) trigger the same sleep/wake as the Quick Access buttons."""
+        try:
+            line = (await asyncio.wait_for(reader.readline(), 5)).decode(errors="replace").strip().lower()
+            if line == "sleep":
+                r = await self.sleep()
+            elif line == "wake":
+                r = await self.wake()
+            elif line == "status":
+                r = await self.status()
+            else:
+                r = {"ok": False, "output": f"unknown command {line!r}"}
+        except Exception as e:  # noqa: BLE001
+            r = {"ok": False, "output": str(e)}
+        try:
+            writer.write((json.dumps(r) + "\n").encode())
+            await writer.drain()
+        except OSError:
+            pass
+        finally:
+            writer.close()
+
+    async def _ctl_start(self):
+        os.makedirs(STATE_DIR, exist_ok=True)
+        try:
+            os.remove(CTL_SOCK)
+        except OSError:
+            pass
+        try:
+            self.ctl_server = await asyncio.start_unix_server(self._ctl, path=CTL_SOCK)
+            os.chmod(CTL_SOCK, 0o600)
+            decky.logger.info("control socket at %s", CTL_SOCK)
+        except Exception as e:  # noqa: BLE001
+            decky.logger.warning("control socket failed: %s", e)
+
     # ------------------------------------------------------------------ lifecycle
     async def _main(self):
         decky.logger.info("BC-250 Sleep backend loaded")
         self.apply_sleep_guard(load_settings()["hook_steam_sleep"])
+        await self._ctl_start()
         # If the loader restarted while asleep, do not leave the game frozen forever.
         if load_state() is not None:
             decky.logger.info("stale sleep state found, waking")
             await self.wake()
 
     async def _unload(self):
+        if self.ctl_server:
+            self.ctl_server.close()
+            self.ctl_server = None
+        try:
+            os.remove(CTL_SOCK)
+        except OSError:
+            pass
         if load_state() is not None:
             await self.wake()

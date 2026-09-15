@@ -55,3 +55,14 @@ pnpm i && pnpm run build      # dist/index.js (prebuilt copy is committed)
 ```
 
 `main.py` needs no build. The plugin runs as root (`"flags": ["root"]`).
+
+## Control socket
+
+While loaded, the backend listens on `/run/bc250-sleep/ctl.sock` (root only). Send one line,
+`sleep`, `wake` or `status`, and read one JSON line back. This is what
+[`bc250-api`](../bc250-api/) uses for its `POST /api/sleep` and `/api/wake`, so the ESP32 power
+page can put the console to sleep and wake it from a phone:
+
+```bash
+printf 'sleep\n' | sudo socat - UNIX-CONNECT:/run/bc250-sleep/ctl.sock
+```

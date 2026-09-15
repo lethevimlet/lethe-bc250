@@ -258,6 +258,7 @@ from voltage, see §4.2), 8 cores at 51 °C, 35 W package power, 6144 MB VRAM at
 | `GPU_MIN` / `GPU_MAX` | The governor's frequency range. 500 MHz floor saves ~10 W at idle; 1850 MHz is the image default ceiling. | live |
 | `CU` 24 / 40 | Routes all 40 compute units through `bc250-cu-live-manager`. Compute ~1.6x, games only a few % (fill-rate bound), ~+30 W. | live, re-applied at boot |
 | `CORES` 6 / 8 | Enables the two dormant cores with an SMU message (technique from [GabriWar/bc250-core-cu-unlock](https://github.com/GabriWar/bc250-core-cu-unlock)). Nothing is flashed. | warm reboot; a cold boot reverts |
+| `CORES_AUTO_REBOOT` | The core mask does not survive a power-off, so a cold boot with `CORES=8` comes up with 6 cores until a warm reboot. `on` makes the boot service do that reboot itself, once (a persistent stamp rules out a loop). Adds ~40 s to a power-on. | next cold boot |
 | `HUD` | One-line MangoHud layout as Performance Overlay level 1 (files in [`decky-bc250-tune/mangohud/`](decky-bc250-tune/mangohud/)) | next game launch |
 | `RES` | Gaming Mode output resolution (e.g. 1080p on a 4K panel) | gaming session restart |
 
@@ -418,6 +419,7 @@ GET  /api/tune[?refresh=1]       bc250-tune status --json (cached 30 s)
 POST /api/tune/set               {"key":"cu","value":"40"}  → bc250-tune set cu 40
 POST /api/tune/reboot            warm reboot (8 cores)
 POST /api/tune/restart-session   gaming session restart (resolution)
+POST /api/sleep, /api/wake       fake sleep / wake (through the BC-250 Sleep plugin's control socket)
 ```
 
 ```bash
@@ -644,7 +646,10 @@ router's DHCP reservation. It polls `/rest/status` every two seconds while the t
 
 While the state is `RUNNING` the page grows a **Console** panel, fetched by the phone's browser
 straight from `bc250-api` on the BC-250 (§4.6) every five seconds; the ESP32 only hands the browser
-the address (`console` in `/rest/status`, from `CONSOLE_API` in the sketch). Tiles show FPS and the
+the address (`console` in `/rest/status`, from `CONSOLE_API` in the sketch). Once the console
+answers, the status line refines the ESP32's `RUNNING` into **RUNNING** (a game is running),
+**IDLE** (on, no game) or **SLEEP** (the fake sleep of §4.5 holds it, blue dot), and a **Sleep** /
+**Wake** button under the tiles drives that fake sleep from the phone. Tiles show FPS and the
 running game, GPU clock and temperature, CPU temperature with cores and clock, SoC and estimated
 total power, fan rpm and VRAM use. Below them are the `bc250-tune` switches (compute units, cores,
 HUD, GPU floor and ceiling, VRAM split, resolution): a tap runs `bc250-tune set` on the console, and

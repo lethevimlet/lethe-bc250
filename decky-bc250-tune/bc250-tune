@@ -13,6 +13,7 @@
 # Everything is idempotent: re-run `bc250-tune apply` any time; a systemd unit re-applies the
 # volatile parts (CU table, core mask, CMOS check) at every boot.
 #
+#   CORES_AUTO_REBOOT on/off: warm-reboot once automatically after a cold boot so CORES=8 enumerates
 # Usage: bc250-tune {status [--json] | apply [--boot] | set KEY VALUE... | menu | hud-stats |
 #                    reboot | restart-session | install | uninstall}
 #
@@ -24,7 +25,7 @@ set -uo pipefail
 unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-VERSION="1.0.2"
+VERSION="1.1.0"
 CONF_DIR=/etc/bc250-tune
 CONF="$CONF_DIR/config"
 STATE_DIR=/run/bc250-tune
@@ -52,6 +53,9 @@ D_HUD=on
 D_RES=1920x1080
 D_TOTAL_OFFSET_W=45      # HUD "TOTAL" = SoC package power + this (GDDR6, VRM loss, fan, SSD)
 D_TUNE_USER=             # empty = auto-detect the desktop user
+D_CORES_AUTO_REBOOT=off  # on = after a cold boot with CORES=8, warm-reboot once automatically so the 8 cores enumerate
+AUTO_REBOOT_STAMP=/var/lib/bc250-tune/auto-reboot-stamp   # persistent: one automatic reboot per cold boot, never a loop
+AUTO_REBOOT_MIN_GAP=300
 
 # ---------------------------------------------------------------------------------------------
 # helpers
@@ -65,7 +69,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 load_conf() {
     UMA_SIZE=$D_UMA_SIZE GPU_MIN=$D_GPU_MIN GPU_MAX=$D_GPU_MAX CU=$D_CU CORES=$D_CORES
-    HUD=$D_HUD RES=$D_RES TOTAL_OFFSET_W=$D_TOTAL_OFFSET_W TUNE_USER=$D_TUNE_USER
+    HUD=$D_HUD RES=$D_RES TOTAL_OFFSET_W=$D_TOTAL_OFFSET_W TUNE_USER=$D_TUNE_USER CORES_AUTO_REBOOT=$D_CORES_AUTO_REBOOT
     # shellcheck disable=SC1090
     [ -r "$CONF" ] && . "$CONF"
 }
@@ -80,6 +84,7 @@ GPU_MIN=$GPU_MIN            # GPU governor floor, MHz (500 = lowest safe-point, 
 GPU_MAX=$GPU_MAX            # GPU governor ceiling, MHz (image default 1850; 2000 = hotter)
 CU=$CU                      # 24 = stock, 40 = route all WGPs (live, re-applied at boot)
 CORES=$CORES                # 6 = stock, 8 = SMU core unlock (needs a WARM reboot; a cold boot reverts)
+CORES_AUTO_REBOOT=$CORES_AUTO_REBOOT   # on = warm-reboot once automatically after a cold boot so CORES=8 enumerates (adds ~40 s to power-on)
 HUD=$HUD                    # on = install the one-line MangoHud layout as Gaming Mode overlay level 1
 RES=$RES                    # Gaming Mode output, WxH or "native"
 TOTAL_OFFSET_W=$TOTAL_OFFSET_W   # HUD TOTAL = SoC watts + this estimate of the rest of the board
@@ -245,6 +250,22 @@ cores_unlock() {
     [ "$mask" -eq 255 ] || die "CORES: unlock failed (SMU response ${resp:-none}); mask unchanged, nothing broken"
     log "CORES: mask set to 0xFF (SMU ok); all 8 cores appear after a WARM reboot (bc250-tune reboot)"
 }
+# The SMU core mask survives a warm reboot but not a power-off, so a cold boot with CORES=8 always
+# comes up with 6 cores until someone reboots. With CORES_AUTO_REBOOT=on, apply --boot does that
+# reboot itself, once: a persistent stamp stops a second attempt for AUTO_REBOOT_MIN_GAP seconds, so a
+# board that never enumerates the cores cannot loop.
+cores_auto_reboot() {
+    [ "$CORES" = 8 ] && [ "$CORES_AUTO_REBOOT" = on ] || return 0
+    local vis mask now last; vis=$(cores_visible); [ "$vis" -lt 8 ] || return 0
+    mask=$(cores_mask); [ "${mask:-0}" -eq 255 ] || { warn "CORES: auto reboot skipped, mask is not 0xFF"; return 0; }
+    now=$(date +%s); last=$(cat "$AUTO_REBOOT_STAMP" 2>/dev/null || echo 0)
+    if [ $(( now - last )) -lt $AUTO_REBOOT_MIN_GAP ]; then
+        warn "CORES: still $vis cores $(( now - last )) s after the automatic warm reboot; not rebooting again"; return 0
+    fi
+    mkdir -p "$(dirname "$AUTO_REBOOT_STAMP")"; echo "$now" > "$AUTO_REBOOT_STAMP"
+    log "CORES: cold boot came up with $vis cores and CORES_AUTO_REBOOT=on -> warm reboot now"
+    cmd_reboot
+}
 cores_apply() {
     have setpci || { warn "setpci missing; skipping CORES"; return; }
     case "$CORES" in 6|8) ;; *) die "CORES must be 6 or 8";; esac
@@ -356,6 +377,8 @@ cmd_apply() {
     [ $NEED_COLD_BOOT = 1 ] && echo "cold boot needed (power off) to return to 6 cores" > "$STATE_DIR/coldboot-needed" || rm -f "$STATE_DIR/coldboot-needed"
     if [ $NEED_SESSION = 1 ]; then echo 1 > "$STATE_DIR/session-restart-needed"; [ $boot = 1 ] || log "Gaming Mode session restart needed for RES -> sudo bc250-tune restart-session (closes games)"
     else rm -f "$STATE_DIR/session-restart-needed"; fi
+    [ $boot = 1 ] && cores_auto_reboot
+    return 0
 }
 
 json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/["\\]/\\&/g')"; }
@@ -379,10 +402,10 @@ cmd_status() {
     cold=$([ -e "$STATE_DIR/coldboot-needed" ] && echo 1 || echo 0)
     local curmhz est; gov_read_mhz; curmhz=$GOV_MHZ; est=$GOV_MHZ_EST
     if [ "${1:-}" = "--json" ]; then
-        printf '{"version":%s,"root":%s,"user":%s,"uma":{"config":%s,"cmos":%s,"live_mb":%s},"gpu":{"min":%s,"max":%s,"config_min":%s,"config_max":%s,"cur_mhz":%s,"cur_mhz_estimated":%s,"temp":%s},"cu":{"config":%s,"live":%s},"cores":{"config":%s,"mask":%s,"visible":%s},"hud":{"config":%s,"installed":%s},"res":{"config":%s,"session":%s},"power":{"soc_w":%s,"total_w":%s,"cpu_temp":%s},"pending":{"reboot":%s,"session_restart":%s,"cold_boot":%s}}\n' \
+        printf '{"version":%s,"root":%s,"user":%s,"uma":{"config":%s,"cmos":%s,"live_mb":%s},"gpu":{"min":%s,"max":%s,"config_min":%s,"config_max":%s,"cur_mhz":%s,"cur_mhz_estimated":%s,"temp":%s},"cu":{"config":%s,"live":%s},"cores":{"config":%s,"mask":%s,"visible":%s,"auto_reboot":%s},"hud":{"config":%s,"installed":%s},"res":{"config":%s,"session":%s},"power":{"soc_w":%s,"total_w":%s,"cpu_temp":%s},"pending":{"reboot":%s,"session_restart":%s,"cold_boot":%s}}\n' \
             "$(json_str "$VERSION")" "$root" "$(json_str "$T_USER")" "$UMA_SIZE" "${ucmos:-null}" "$ulive" \
             "${gmin:-0}" "${gmax:-0}" "$GPU_MIN" "$GPU_MAX" "${curmhz:-0}" "$( [ "$est" = 1 ] && echo true || echo false )" "$gpu_t" \
-            "$CU" "$cu" "$CORES" "${mask:-null}" "$vis" "$(json_str "$HUD")" "$(json_str "$hud")" \
+            "$CU" "$cu" "$CORES" "${mask:-null}" "$vis" "$(json_str "$CORES_AUTO_REBOOT")" "$(json_str "$HUD")" "$(json_str "$hud")" \
             "$(json_str "$RES")" "$(json_str "${cur_res:-}")" "$soc" "$(( soc + TOTAL_OFFSET_W ))" "$cpu_t" "$(json_str "$rb")" "$sess" "$cold"
         return
     fi
@@ -390,7 +413,7 @@ cmd_status() {
     printf '  %-10s config %-9s CMOS %-8s live VRAM %s MB\n' UMA "$UMA_SIZE MB" "${ucmos:-n/a}" "$ulive"
     printf '  %-10s config %-9s governor file %s-%s MHz, now %s%s MHz, %s°C\n' GPU "$GPU_MIN-$GPU_MAX" "${gmin:-?}" "${gmax:-?}" "$( [ "$est" = 1 ] && echo '~' )" "${curmhz:-?}" "$gpu_t"
     printf '  %-10s config %-9s live %s/40 routed\n' CU "$CU" "$cu"
-    printf '  %-10s config %-9s mask %s, %s cores visible, %s°C\n' CORES "$CORES" "$( [ -n "$mask" ] && printf 0x%02X "$mask" || echo n/a )" "$vis" "$cpu_t"
+    printf '  %-10s config %-9s mask %s, %s cores visible, %s°C, auto-reboot after cold boot: %s\n' CORES "$CORES" "$( [ -n "$mask" ] && printf 0x%02X "$mask" || echo n/a )" "$vis" "$cpu_t" "$CORES_AUTO_REBOOT"
     printf '  %-10s config %-9s installed: %s\n' HUD "$HUD" "$hud"
     printf '  %-10s config %-9s session: %s\n' RES "$RES" "${cur_res:-not running}"
     printf '  %-10s SoC %s W, TOTAL ~%s W\n' POWER "$soc" "$(( soc + TOTAL_OFFSET_W ))"
@@ -402,12 +425,13 @@ cmd_status() {
 
 cmd_set() {
     need_root; load_conf; local apply=1
-    [ $# -ge 2 ] || die "usage: bc250-tune set KEY VALUE [KEY VALUE ...] [--no-apply]   keys: uma gpu-min gpu-max cu cores hud res"
+    [ $# -ge 2 ] || die "usage: bc250-tune set KEY VALUE [KEY VALUE ...] [--no-apply]   keys: uma gpu-min gpu-max cu cores cores-auto-reboot hud res"
     while [ $# -gt 0 ]; do
         case "$1" in
             --no-apply) apply=0; shift; continue ;;
             uma|UMA_SIZE) UMA_SIZE=$2 ;; gpu-min|GPU_MIN) GPU_MIN=$2 ;; gpu-max|GPU_MAX) GPU_MAX=$2 ;;
             cu|CU) CU=$2 ;; cores|CORES) CORES=$2 ;; hud|HUD) HUD=$2 ;; res|RES) RES=$2 ;;
+            cores-auto-reboot|CORES_AUTO_REBOOT) case "$2" in on|off) CORES_AUTO_REBOOT=$2 ;; *) die "cores-auto-reboot must be on or off" ;; esac ;;
             total-offset|TOTAL_OFFSET_W) TOTAL_OFFSET_W=$2 ;; user|TUNE_USER) TUNE_USER=$2 ;;
             *) die "unknown key: $1" ;;
         esac
@@ -423,12 +447,13 @@ cmd_menu() {
         load_conf
         local st; st=$(cmd_status 2>/dev/null)
         local choice
-        choice=$(whiptail --title "bc250-tune $VERSION" --menu "$st" 26 96 9 \
+        choice=$(whiptail --title "bc250-tune $VERSION" --menu "$st" 27 96 10 \
             UMA    "VRAM split: $UMA_SIZE MB (reboot)" \
             GPUMAX "GPU max clock: $GPU_MAX MHz (live)" \
             GPUMIN "GPU idle clock: $GPU_MIN MHz (live)" \
             CU     "Compute units: $CU (live)" \
             CORES  "CPU cores: $CORES (8 = warm reboot; back to 6 = cold boot)" \
+            AUTORB "Auto warm reboot after a cold boot for 8 cores: $CORES_AUTO_REBOOT" \
             HUD    "Custom MangoHud line: $HUD" \
             RES    "Gaming Mode resolution: $RES (session restart)" \
             APPLY  "Apply now" \
@@ -439,6 +464,7 @@ cmd_menu() {
             GPUMIN) v=$(whiptail --menu "GPU governor min / idle (MHz)" 12 50 2 500 "lowest, ~-10 W idle" 1000 "image default" 3>&1 1>&2 2>&3) && GPU_MIN=$v ;;
             CU)     v=$(whiptail --menu "Compute units (applies live)" 12 60 2 24 "stock" 40 "all WGPs (+30 W, ~+5% games, 1.6x compute)" 3>&1 1>&2 2>&3) && CU=$v ;;
             CORES)  v=$(whiptail --menu "CPU cores" 12 60 2 6 "stock" 8 "SMU unlock, needs WARM reboot" 3>&1 1>&2 2>&3) && CORES=$v ;;
+            AUTORB) v=$(whiptail --menu "After a cold boot with 8 cores configured, warm-reboot once automatically (adds ~40 s to power-on)" 12 70 2 on "" off "" 3>&1 1>&2 2>&3) && CORES_AUTO_REBOOT=$v ;;
             HUD)    v=$(whiptail --menu "Custom one-line MangoHud (Gaming Mode overlay level 1)" 12 60 2 on "" off "" 3>&1 1>&2 2>&3) && HUD=$v ;;
             RES)    v=$(whiptail --menu "Gaming Mode output resolution" 14 50 4 1920x1080 "" 2560x1440 "" 3840x2160 "" native "panel default" 3>&1 1>&2 2>&3) && RES=$v ;;
             APPLY)  write_conf; cmd_apply 2>&1 | tee "$STATE_DIR/last-apply.log" >/dev/null; whiptail --title "apply" --textbox "$STATE_DIR/last-apply.log" 20 90; continue ;;

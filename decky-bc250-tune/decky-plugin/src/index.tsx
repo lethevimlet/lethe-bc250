@@ -18,7 +18,7 @@ type Status = {
   uma: { config: number; cmos: number | null; live_mb: number };
   gpu: { min: number; max: number; config_min: number; config_max: number; cur_mhz: number; cur_mhz_estimated?: boolean; temp: number };
   cu: { config: number; live: number };
-  cores: { config: number; mask: number | null; visible: number };
+  cores: { config: number; mask: number | null; visible: number; auto_reboot?: string };
   hud: { config: string; installed: string };
   res: { config: string; session: string };
   power: { soc_w: number; total_w: number; cpu_temp: number };
@@ -150,6 +150,15 @@ function Content() {
             checked={st.cores.config === 8}
             disabled={busy}
             onChange={(v) => apply("cores", v ? "8" : "6")}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Auto warm reboot after power-on"
+            description="A cold boot always comes up with 6 cores; with this on, the boot service reboots once by itself (adds ~40 s)"
+            checked={st.cores.auto_reboot === "on"}
+            disabled={busy}
+            onChange={(v) => apply("cores-auto-reboot", v ? "on" : "off")}
           />
         </PanelSectionRow>
         <PanelSectionRow>

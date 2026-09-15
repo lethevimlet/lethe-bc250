@@ -158,6 +158,7 @@ h1{margin:0 0 4px;font-size:1.2em;font-weight:600;letter-spacing:.2px}
  transition:background .25s,box-shadow .25s}
 .dot.on{background:#3fbf63;box-shadow:0 0 9px #3fbf63}
 .dot.mid{background:#e0a33a;box-shadow:0 0 9px #e0a33a}
+.dot.zz{background:#5b8def;box-shadow:0 0 9px #5b8def}
 .lbl{font-weight:600;letter-spacing:.4px;overflow:hidden;text-overflow:ellipsis;
  white-space:nowrap}
 .meta{margin-left:auto;color:#8b929c;font-size:.78em;flex:none}
@@ -167,6 +168,8 @@ button{width:100%;min-height:48px;padding:13px 14px;border:0;border-radius:11px;
  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
  transition:background .15s,opacity .15s}
 #on{background:#2f7d4a}#off{background:#8a3030}
+#slp{background:#2f4f7d}#slp.wake{background:#2f7d4a}.cbtn{margin-top:10px}
+#con:not(.ok) .cbtn{display:none}
 button:disabled{opacity:.38;cursor:not-allowed}
 .warn{margin:16px 0 0;color:#8b929c;font-size:.76em}
 .net{margin-top:16px;padding-top:13px;border-top:1px solid #2b3039;
@@ -253,6 +256,7 @@ seconds. For a clean shutdown, use the operating system.</p>
 <div class="tile"><div class="k">Fan</div><div class="v" id="fan">–</div><div class="s" id="fans">rpm</div></div>
 <div class="tile"><div class="k">VRAM</div><div class="v" id="vram">–</div><div class="s" id="vrams"></div></div>
 </div>
+<div class="btns cbtn"><button id="slp">Sleep</button></div>
 <div class="pend" id="pend"><span id="pendt"></span>
 <div class="btns"><button id="rb">Warm reboot</button><button id="rs">Restart session</button></div></div>
 <div class="tune" id="tune"></div>
@@ -264,12 +268,17 @@ seconds. For a clean shutdown, use the operating system.</p>
 <script>
 const $=i=>document.getElementById(i);
 function hms(s){const h=(s/3600|0),m=(s%3600/60|0);return h?h+"h "+m+"m":m+"m"}
-let api=null,running=false,ct=null,busy=false,tuneBuilt=false;
+let api=null,running=false,ct=null,busy=false,tuneBuilt=false,conState=null,asleep=false;
+// Status line: the ESP32's power state, refined by the console once bc250-api answers:
+// RUNNING = a game is running, IDLE = on with no game, SLEEP = the fake sleep holds it.
+function showState(s){
+ const c=conState&&s=='RUNNING'?conState:s;$('st').textContent=c;
+ $('dot').className='dot'+(c=='SLEEP'?' zz':c=='RUNNING'||c=='IDLE'?' on':
+  (c=='STARTING'||c=='STOPPING')?' mid':'');
+}
 async function poll(){
  try{const r=await fetch('/rest/status'),d=await r.json();
-  $('st').textContent=d.state;
-  const dot=$('dot');dot.className='dot'+(d.state=='RUNNING'?' on':
-   (d.state=='STARTING'||d.state=='STOPPING')?' mid':'');
+  showState(d.state);
   $('up').textContent=hms(d.uptime);
   $('rssi').textContent='RSSI '+d.rssi+' dBm';
   $('sense').textContent='sense '+(d.sense?'HIGH':'LOW');
@@ -299,7 +308,8 @@ function setRunning(on){
  if(ct){clearInterval(ct);ct=null}
  if(on){cpoll();ct=setInterval(cpoll,5000)}else $('con').classList.remove('ok');
 }
-function noCon(msg){$('con').classList.remove('ok');$('cst').textContent='offline';$('nc').textContent=msg}
+function noCon(msg){$('con').classList.remove('ok');$('cst').textContent='offline';$('nc').textContent=msg;
+ conState=null;if(running)showState('RUNNING')}
 const fmt=(v,d=0)=>v==null?'–':Number(v).toFixed(d);
 async function cpoll(){
  if(!running||document.hidden)return;
@@ -312,6 +322,8 @@ async function cpoll(){
  }catch(e){noCon('bc250-api is not answering at '+api.replace(/^https?:[/][/]/,'')+' (still booting, or not installed).')}
 }
 function render(d){
+ asleep=!!d.asleep;conState=asleep?'SLEEP':d.game_running?'RUNNING':'IDLE';showState('RUNNING');
+ const b=$('slp');b.textContent=asleep?'Wake':'Sleep';b.className=asleep?'wake':'';
  $('fps').textContent=d.fps==null?'–':Math.round(d.fps);
  $('game').textContent=d.game||(d.focus=='steam'?'Steam':d.fps==null?'idle':'app '+d.focus);
  $('gmhz').innerHTML=(d.gpu.mhz_estimated?'~':'')+fmt(d.gpu.mhz)+'<small>MHz</small>';
@@ -329,13 +341,14 @@ function render(d){
 const OPTS={
  cu:{n:'Compute units',v:['24','40'],h:t=>t.cu.live+' routed'},
  cores:{n:'CPU cores',v:['6','8'],h:t=>t.cores.visible+' visible, needs a warm reboot'},
+ 'cores-auto-reboot':{n:'Auto reboot for 8 cores',v:['on','off'],h:t=>'a cold boot comes up with 6; reboots once at boot'},
  hud:{n:'HUD line',v:['on','off'],h:t=>'MangoHud overlay level 1'},
  'gpu-min':{n:'GPU floor',s:['500','700','1000','1175'],u:' MHz',h:t=>'now '+(t.gpu.cur_mhz_estimated?'~':'')+t.gpu.cur_mhz+' MHz'},
  'gpu-max':{n:'GPU ceiling',s:['1500','1700','1850','2000'],u:' MHz',h:t=>'2000 runs hotter'},
  uma:{n:'VRAM (UMA)',s:['2048','4096','6144','8192','10240','12288'],u:' MB',h:t=>'CMOS, needs a reboot'},
  res:{n:'Resolution',s:['native','1280x720','1920x1080','2560x1440','3840x2160'],u:'',h:t=>'session '+(t.res.session||'?')}
 };
-const cur=(t,k)=>({cu:t.cu.config,cores:t.cores.config,hud:t.hud.config,'gpu-min':t.gpu.config_min,
+const cur=(t,k)=>({cu:t.cu.config,cores:t.cores.config,'cores-auto-reboot':t.cores.auto_reboot,hud:t.hud.config,'gpu-min':t.gpu.config_min,
  'gpu-max':t.gpu.config_max,uma:t.uma.config,res:t.res.config})[k];
 function buildTune(){
  const box=$('tune');box.innerHTML='';
@@ -349,8 +362,8 @@ function buildTune(){
    o.s.forEach(v=>{const e=document.createElement('option');e.value=v;e.textContent=v+o.u;sel.appendChild(e)});
    sel.onchange=()=>tset(k,sel.value);row.appendChild(sel);}
   box.appendChild(row);}
- $('rb').onclick=()=>tact('reboot','Warm reboot the console now?');
- $('rs').onclick=()=>tact('restart-session','Restart the gaming session now? Steam will close.');
+ $('rb').onclick=()=>tact('/api/tune/reboot','Warm reboot the console now?',3000);
+ $('rs').onclick=()=>tact('/api/tune/restart-session','Restart the gaming session now? Steam will close.',3000);
  tuneBuilt=true;
 }
 function renderTune(t){
@@ -377,11 +390,13 @@ async function tset(k,v){
  }catch(e){alert('console unreachable')}
  setBusy(false);cpoll();
 }
-async function tact(a,q){
- if(!confirm(q))return;setBusy(true);$('cst').textContent=a+'…';
- try{await fetch(api+'/api/tune/'+a,{method:'POST'})}catch(e){}
- setBusy(false);setTimeout(cpoll,3000);
+async function tact(path,q,wait){
+ if(q&&!confirm(q))return;setBusy(true);$('cst').textContent=path.split('/').pop()+'…';
+ try{const r=await fetch(api+path,{method:'POST'}),j=await r.json();if(!j.ok)alert(j.output||'failed')}
+ catch(e){alert('console unreachable')}
+ setBusy(false);setTimeout(cpoll,wait||800);
 }
+$('slp').onclick=()=>tact(asleep?'/api/wake':'/api/sleep');
 // Poll only while the tab is visible, to save battery on the phone
 // and needless radio wakeups on the ESP32.
 let t=null;
