@@ -320,18 +320,41 @@ class Plugin:
             await asyncio.sleep(0.5 if first_ok is None else 1.5)
 
     async def _watch_input(self):
-        """Wake on the first key/button press on any input device (after a short grace period)."""
-        fds = {}
-        for name in sorted(os.listdir("/dev/input")):
-            if not name.startswith("event"):
-                continue
-            try:
-                fd = os.open(f"/dev/input/{name}", os.O_RDONLY | os.O_NONBLOCK)
+        """Wake on the first key/button press on any input device (after a short grace period).
+
+        Devices come and go while asleep: Steam's suspend flow powers off wireless controllers, and
+        the pad comes back as a *new* /dev/input/eventN when its button is pressed. So the watched
+        set is not fixed: rescan /dev/input about once a second and open anything new, and drop a
+        node whose read fails (ENODEV once the device is unregistered; select() reports it readable
+        forever otherwise, which would also spin this loop)."""
+        fds = {}  # fd -> node name
+        watched = set()
+
+        def rescan():
+            added = []
+            for name in sorted(os.listdir("/dev/input")):
+                if not name.startswith("event") or name in watched:
+                    continue
+                try:
+                    fd = os.open(f"/dev/input/{name}", os.O_RDONLY | os.O_NONBLOCK)
+                except OSError:
+                    continue
                 fds[fd] = name
+                watched.add(name)
+                added.append(name)
+            return added
+
+        def drop(fd):
+            watched.discard(fds.pop(fd, None))
+            try:
+                os.close(fd)
             except OSError:
                 pass
+
+        rescan()
         decky.logger.info("input watcher on %d devices", len(fds))
         grace_until = time.time() + 2.0  # ignore the button release that triggered us
+        last_scan = time.time()
         try:
             while True:
                 r, _, _ = await asyncio.get_event_loop().run_in_executor(None, select.select, list(fds), [], [], 1.0)
@@ -341,6 +364,8 @@ class Plugin:
                     try:
                         data = os.read(fd, EVENT_SIZE * 64)
                     except OSError:
+                        decky.logger.info("input watcher: %s went away", fds.get(fd))
+                        drop(fd)
                         continue
                     for i in range(0, len(data) - EVENT_SIZE + 1, EVENT_SIZE):
                         _, _, etype, _, value = struct.unpack(EVENT_FMT, data[i:i + EVENT_SIZE])
@@ -350,14 +375,16 @@ class Plugin:
                     decky.logger.info("input detected, waking")
                     await self.wake()
                     return
+                if time.time() - last_scan >= 1.0:
+                    last_scan = time.time()
+                    added = rescan()
+                    if added:
+                        decky.logger.info("input watcher: new device(s) %s, now %d", " ".join(added), len(fds))
         except asyncio.CancelledError:
             pass
         finally:
-            for fd in fds:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+            for fd in list(fds):
+                drop(fd)
 
     # ------------------------------------------------------------------ lifecycle
     async def _main(self):

@@ -40,7 +40,7 @@ Requires Decky Loader. On Bazzite make Decky's binary readable first:
 |--------|---------|--------|
 | Freeze the running game | on | `SIGSTOP`/`SIGCONT` the game found under Steam's `reaper SteamLaunch AppId=N` |
 | Mute audio | on | `wpctl set-mute` on the default sink; on wake the same sink is unmuted **by node name** (the HDMI sink disappears while the TV sleeps and returns with a new id), re-asserted for a few seconds because WirePlumber may re-apply the saved muted state |
-| Wake on any input | on | backend watches every `/dev/input/event*` for a key/button press (2 s grace after sleeping) |
+| Wake on any input | on | backend watches every `/dev/input/event*` for a key/button press (2 s grace after sleeping); rescans once a second so a controller that Steam powered off on sleep and that comes back as a new node still wakes |
 | Use Steam's Sleep button | on | wraps `SuspendPC` + `systemctl mask sleep.target suspend.target …`; off restores both |
 
 Settings live in Decky's settings dir (`~/homebrew/settings/bc250-sleep/settings.json`). State while asleep is in
