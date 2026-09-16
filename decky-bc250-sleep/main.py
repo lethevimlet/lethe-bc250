@@ -26,7 +26,8 @@ STATE_FILE = os.path.join(STATE_DIR, "state.json")
 CTL_SOCK = os.path.join(STATE_DIR, "ctl.sock")  # root-only control socket, used by bc250-api
 SETTINGS_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
 SLEEP_UNITS = ["sleep.target", "suspend.target", "hybrid-sleep.target", "hibernate.target", "suspend-then-hibernate.target"]
-DEFAULTS = {"pause_game": True, "mute_audio": True, "wake_on_input": True, "hook_steam_sleep": True, "quiet_fans": True}
+DEFAULTS = {"pause_game": True, "mute_audio": True, "wake_on_input": True, "hook_steam_sleep": True, "quiet_fans": True,
+            "fan_pwm": 40}  # fan_pwm: duty 0-255 while asleep (40 = 15 %, ~770 rpm on ARCTIC P12 Pro)
 CLEAN_ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"}
 EV_KEY = 0x01
 EVENT_FMT = "llHHi"  # struct input_event on 64-bit
@@ -36,7 +37,7 @@ EVENT_SIZE = struct.calcsize(EVENT_FMT)
 # nct6687 driver exposes a writable pwmN. The board's own curve barely changes speed between idle
 # and load, so the idle chip alone does not make the box quieter: we lower the duty ourselves.
 FAN_CHIPS = ("nct6687", "nct6686", "nct6683")
-FAN_SLEEP_PWM = 64  # ~25 % duty
+FAN_PWM_MIN, FAN_PWM_MAX = 12, 128  # allowed range for the fan_pwm setting (5 %..50 %)
 FAN_MAX_TEMP_C = 65.0  # CPU or GPU die above this while asleep -> back to the board's curve
 FAN_MIN_RPM = 300  # slower than this once settled -> stalled -> back to the board's curve
 FAN_SETTLE_S = 10.0  # time the fan gets to react before the stall / no-response checks apply
@@ -230,10 +231,11 @@ def fan_restore(fan):
         return False
 
 
-def fan_quiet(fan):
-    """Lower the header to FAN_SLEEP_PWM, remembering in `fan` what to put back. Touches nothing and
+def fan_quiet(fan, duty):
+    """Lower the header to `duty` (0-255), remembering in `fan` what to put back. Touches nothing and
     returns False when it cannot be done safely (no die temperature to watch, already that slow)."""
     h, ch = fan["hwmon"], fan["ch"]
+    duty = max(FAN_PWM_MIN, min(FAN_PWM_MAX, int(duty)))
     if die_temps() is None:
         decky.logger.info("fans: no die temperature sensor, leaving the board's curve")
         return False
@@ -241,17 +243,17 @@ def fan_quiet(fan):
     fan["pwm"] = read_int(os.path.join(h, f"pwm{ch}"))
     if fan["enable"] is None or fan["pwm"] is None:
         return False
-    if fan["pwm"] <= FAN_SLEEP_PWM:
+    if fan["pwm"] <= duty:
         decky.logger.info("fans: already at duty %s, leaving it", fan["pwm"])
         return False
     try:
         write_str(os.path.join(h, f"pwm{ch}_enable"), 1)
-        write_str(os.path.join(h, f"pwm{ch}"), FAN_SLEEP_PWM)
+        write_str(os.path.join(h, f"pwm{ch}"), duty)
     except OSError as e:
         decky.logger.warning("fans: lowering failed (%s), restoring", e)
         fan_restore(fan)
         return False
-    decky.logger.info("fans: pwm%d duty %s -> %d (mode was %s, %s rpm)", ch, fan["pwm"], FAN_SLEEP_PWM, fan["enable"], fan["rpm"])
+    decky.logger.info("fans: pwm%d duty %s -> %d (mode was %s, %s rpm)", ch, fan["pwm"], duty, fan["enable"], fan["rpm"])
     return True
 
 
@@ -332,7 +334,13 @@ class Plugin:
         s = load_settings()
         if key not in DEFAULTS:
             return {"ok": False, "output": f"unknown setting {key}"}
-        s[key] = bool(value)
+        if isinstance(DEFAULTS[key], bool):
+            s[key] = bool(value)
+        else:
+            try:
+                s[key] = max(FAN_PWM_MIN, min(FAN_PWM_MAX, int(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "output": f"{key} must be a number"}
         save_settings(s)
         if key == "hook_steam_sleep":
             rc, out = self.apply_sleep_guard(s[key])
@@ -389,7 +397,7 @@ class Plugin:
             fan = find_fan()
             if fan is None:
                 decky.logger.info("fans: no controllable fan header (nct6687 driver loaded?)")
-            elif fan_quiet(fan):
+            elif fan_quiet(fan, s.get("fan_pwm", DEFAULTS["fan_pwm"])):
                 st["fan"] = fan
                 self.fan_task = asyncio.get_event_loop().create_task(self._fan_guard(fan))
         save_state(st)

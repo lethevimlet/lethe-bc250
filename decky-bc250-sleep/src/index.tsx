@@ -1,4 +1,4 @@
-import { ButtonItem, Field, PanelSection, PanelSectionRow, ToggleField, staticClasses } from "@decky/ui";
+import { ButtonItem, DropdownItem, Field, PanelSection, PanelSectionRow, ToggleField, staticClasses } from "@decky/ui";
 import { addEventListener, callable, definePlugin, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaMoon } from "react-icons/fa";
@@ -20,7 +20,7 @@ function clearSteamSuspendState() {
   }
 }
 
-type Settings = { pause_game: boolean; mute_audio: boolean; wake_on_input: boolean; hook_steam_sleep: boolean; quiet_fans: boolean };
+type Settings = { pause_game: boolean; mute_audio: boolean; wake_on_input: boolean; hook_steam_sleep: boolean; quiet_fans: boolean; fan_pwm: number };
 type Status = {
   asleep: boolean;
   since: number | null;
@@ -35,7 +35,7 @@ type Status = {
 type Result = { ok: boolean; output: string };
 
 const getStatus = callable<[], Status>("status");
-const setSetting = callable<[key: string, value: boolean], Result>("set_setting");
+const setSetting = callable<[key: string, value: boolean | number], Result>("set_setting");
 const sleepNow = callable<[], Result>("sleep");
 const wakeNow = callable<[], Result>("wake");
 
@@ -126,12 +126,22 @@ function Content() {
         <PanelSectionRow>
           <ToggleField
             label="Quiet the fans"
-            description={`Fan header to ~25% duty while asleep. Back to the board's curve on wake, and at once if a die passes 65 °C, the fan stalls or it does not slow down. ${
+            description={`Lower the fan header while asleep. Back to the board's curve on wake, and at once if a die passes 65 °C, the fan stalls or it does not slow down. ${
               st.fan_control ? `Fan now ${st.fan_rpm} rpm.` : "No controllable fan header found (needs the nct6687 driver)."
             }`}
             checked={s.quiet_fans}
             disabled={busy}
             onChange={toggle("quiet_fans")}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <DropdownItem
+            label="Fan duty while asleep"
+            description="Lower is quieter; the guard still hands the fan back if a die passes 65 °C or the fan stalls"
+            rgOptions={[26, 40, 51, 64, 89, 128].map((v) => ({ data: v, label: `${Math.round((v * 100) / 255)} %` }))}
+            selectedOption={s.fan_pwm}
+            disabled={busy || !s.quiet_fans}
+            onChange={(o) => act("fan_pwm", () => setSetting("fan_pwm", Number(o.data)))}
           />
         </PanelSectionRow>
         <PanelSectionRow>

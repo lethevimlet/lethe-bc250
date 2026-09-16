@@ -378,7 +378,7 @@ real Sleep harmless:
 | Step | What happens |
 |------|--------------|
 | Sleep | the running game's whole process tree is frozen (`SIGSTOP`, nothing rendered, GPU drops to its idle clock), audio is muted, and the TV is put to sleep through gamescope (`drm_sleep_external_screen`, real DPMS off) |
-| While asleep | the board stays fully powered at its idle package power (~32 W SoC, ~75 W at the wall): the **board LEDs stay lit** and only the TV is dark. The board's own fan curve barely slows down when the chip idles, so the plugin drops the **fan header to ~25 % duty** itself (through the nct6687 driver) and gives it back on wake, or at once if a die passes 65 °C, the fan stalls or does not respond (BIOS fan mode *Full Speed* ignores it; use *Default* or *Customize*). It is a pause, not a power saving |
+| While asleep | the board stays fully powered at its idle package power (~32 W SoC, ~75 W at the wall): the **board LEDs stay lit** and only the TV is dark. The board's own fan curve barely slows down when the chip idles, so the plugin drops the **fan header to a low duty** itself (through the nct6687 driver; 15 % by default, about 770 rpm on the P12 Pro, adjustable in the plugin) and gives it back on wake, or at once if a die passes 65 °C, the fan stalls or does not respond (BIOS fan mode *Full Speed* ignores it; use *Default* or *Customize*). It is a pause, not a power saving |
 | Wake | the first button press on any controller, keyboard or mouse turns the TV back on, thaws the game and unmutes; you are back exactly where you left off. **Do not use the case power button to wake:** the ESP32 sees the board as running, so a short press does nothing and a five-second hold hard-cuts the power (§5) |
 
 How to trigger it:
