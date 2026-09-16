@@ -112,12 +112,13 @@ function Content() {
 
       <PanelSection title="GPU">
         <PanelSectionRow>
-          <ToggleField
-            label="40 compute units"
-            description="Route all WGPs (live). +~30 W, ~+5 % in games, 1.6x compute"
-            checked={st.cu.config === 40}
+          <DropdownItem
+            label="Compute units"
+            description="Live. 32 = one extra WGP per shader row, a middle step if 40 misbehaves. 40: +~30 W, ~+5 % in games, 1.6x compute"
+            rgOptions={[opt(24, "24 (stock)"), opt(32, "32"), opt(40, "40 (all WGPs)")]}
+            selectedOption={st.cu.config}
             disabled={busy}
-            onChange={(v) => apply("cu", v ? "40" : "24")}
+            onChange={(o) => apply("cu", String(o.data))}
           />
         </PanelSectionRow>
         <PanelSectionRow>

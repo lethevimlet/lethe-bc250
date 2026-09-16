@@ -341,7 +341,7 @@ function render(d){
 }
 // ---- tune switches (bc250-tune through bc250-api)
 const OPTS={
- cu:{n:'Compute units',v:['24','40'],h:t=>t.cu.live+' routed'},
+ cu:{n:'Compute units',v:['24','32','40'],h:t=>t.cu.live+' routed'},
  cores:{n:'CPU cores',v:['6','8'],h:t=>t.cores.visible+' visible, needs a warm reboot'},
  'cores-auto-reboot':{n:'Auto reboot for 8 cores',v:['on','off'],h:t=>'cold boot gives 6, then one auto reboot'},
  hud:{n:'HUD line',v:['on','off'],h:t=>'MangoHud overlay level 1'},
