@@ -107,7 +107,7 @@ Everything used in this build, with the exact parts where it matters.
 | **PSU: Metalfish 500 W, Flex ATX** | [AliExpress](https://es.aliexpress.com/item/1005009609601844.html). **Flex ATX** form factor, which is what the printed case's PSU compartment is sized for (§6); a standard ATX or SFX unit will not fit. Standard ATX pinout otherwise: 24-pin and an EPS12V 8-pin for the board cable. The BC-250 draws ~125–180 W at the extremes, all from the 12 V rail. |
 | **Power cable: 8-pin EPS12V → 2× Micro-Fit 8-pin** — **REQUIRED, fire safety** | [moddiy ASRock BC-250 cable](https://www.moddiy.com/products/6837/Standard-8-Pin-EPS12V-to-2-x-MicroFit-8-Pin-Cable-for-ASRock-BC250.html). The board has two Micro-Fit 8-pin power inputs. Feeding it through a single PCIe 8-pin plug forces the whole 200–250 W peak draw down one 18 AWG lead set, which is beyond what that gauge is rated for and heats the cable and connector. This adapter takes the PSU's EPS12V (CPU) 8-pin, whose four 12 V conductors are rated for it, and splits it across both board inputs. Do not run the board on a PCIe cable alone. The plugs' tabs must be cut for them to seat; see [§2.2](#22-fit-the-power-cable-and-the-auto-power-on-jumper). |
 | **Soft power control** | **ESP32-C3 SuperMini** (recommended: tiny, USB-C, runs happily from the PSU's 5 V standby rail; any ESP32 works), [16 mm momentary push button](https://www.amazon.es/dp/B07Z4PHKJX), PC817 optocoupler, resistors (220 Ω and 1 kΩ), hookup wire, solder, heatshrink tube. Full parts list and build in [§5](#5-soft-power-control-with-an-esp32). |
-| **Cooling** | 2× **ARCTIC P12 PWM PST** 120 mm fans on the double fan shroud (recommended over a single fan), plus a **PWM Y-splitter** so both run from the board's one fan header (the P12 PST daisy-chains too). **Thermalright TFX** thermal paste for the APU (a full tube's worth is not excessive: the die sits ~1 mm below the heatsink base, §2.1) and new **2 mm thermal pads** for the GDDR6 and VRMs; the factory ones are dry. |
+| **Cooling** | 2× **ARCTIC P12 Pro PST** 120 mm fans on the double fan shroud (recommended over a single fan). Daisy-chain the second from the first one's PST pass-through, so both hang off the board's one 4-pin header and both get its PWM signal; that is what lets the Sleep plugin slow them down (§4.5). More airflow and static pressure than the plain P12, and they go down to ~500 rpm at low duty. **Thermalright TFX** thermal paste for the APU (a full tube's worth is not excessive: the die sits ~1 mm below the heatsink base, §2.1) and new **2 mm thermal pads** for the GDDR6 and VRMs; the factory ones are dry. |
 | **Case** (optional) | Access to a 3D printer for the case in [§6](#6-3d-printed-case), plus 12× [M3 heat-set inserts](https://es.aliexpress.com/item/1005005920120561.html) and 12× [M3 × 6 mm screws](https://es.aliexpress.com/item/1005008082257314.html). |
 
 Tools: a fine-tipped soldering iron, side cutters, wire strippers, a multimeter (not optional for the
@@ -750,11 +750,14 @@ Hardware used in this build:
 | Heat-set threaded inserts | 12 | M3 × 3.5 × 4.6 × 6 mm (M3 thread, 4.6 mm outer diameter, 6 mm long) | [AliExpress](https://es.aliexpress.com/item/1005005920120561.html) |
 | Screws | 12 | M3 × 6 mm | [AliExpress](https://es.aliexpress.com/item/1005008082257314.html) |
 
-**Fans.** Print the **double** shroud and fit two **ARCTIC P12 PWM PST** 120 mm fans blowing onto the
+**Fans.** Print the **double** shroud and fit two **ARCTIC P12 Pro PST** 120 mm fans blowing onto the
 heatsink fins (lid removed, §2.1). One fan works but runs hotter and louder; two at low rpm are quieter
-for the same airflow. The BC-250 has a single 4-pin fan header, so use a **PWM Y-splitter**, or chain
-the second fan from the first one's PST pass-through connector. The fan curve is set by the board and
-the speed shows up as `FAN` in the HUD.
+for the same airflow. The BC-250 has a single 4-pin fan header: plug the first fan into it and chain
+the second from the first one's PST pass-through connector, so both receive the header's PWM signal.
+Avoid a Y-splitter that carries only power to one or both plugs: a fan that never sees PWM runs flat
+out and the Sleep plugin cannot slow it (§4.5, and set the BIOS fan mode to *Default* or *Customize*,
+§3.1). The board's curve drives them while awake; the speed shows up as `FAN` in the HUD and on the
+ESP32 page.
 
 The momentary button from §5 goes in the front panel's round hole. TODO: print settings
 (material, orientation, supports).
