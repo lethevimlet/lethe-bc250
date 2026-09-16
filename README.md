@@ -583,7 +583,9 @@ PC817's pins are close together and a generous joint bridges them easily.
    * `WIFI_SSID` / `WIFI_PASS` — WPA2 needs an 8–63 character passphrase; leave `WIFI_PASS` as `""`
      for an open network.
    * `OTA_PASS` — **never leave it empty**; this firmware owns the machine's power path.
-   * `MDNS_NAME` — the web page address (`bc250` → `http://bc250.local`).
+   * `MDNS_NAME` — the mDNS name (`bc250` → `http://bc250.local`). Treat it as a bonus: many home
+     routers and phones do not resolve `.local`, so the reliable address is the ESP32's IP, fixed with a
+     DHCP reservation (below).
    * `CONSOLE_API` — default `http://<console-ip>:8250` where `bc250-api` runs ([§4.6](#46-stats-and-switches-over-the-network-bc250-api)).
      It can be changed later from the page footer (kept in the ESP32's NVS), so a new console IP
      needs no reflash. `""` hides the Console panel.
@@ -618,7 +620,7 @@ off first.** OTA only arms while the firmware is in the `OFF` state, on purpose:
 ESP32, the optocoupler LED goes dark before any code runs, and a running BC-250 would be hard-cut.
 
 1. Shut the BC-250 down from Steam or the desktop. Wait for the PSU to drop to standby; the web page
-   or `http://bc250.local/rest/status` must show `"state":"OFF"` and `"ota":true` ("OTA ready" on
+   or `http://<esp32-ip>/rest/status` must show `"state":"OFF"` and `"ota":true` ("OTA ready" on
    the page). If it says "OTA locked", the machine is not off yet.
 2. Arduino IDE → Tools → Port: pick the network port `bc250 at <ip>` (it appears a few seconds after
    the ESP32 reports OTA ready). If it is missing, check that your computer is on the same network
@@ -645,7 +647,8 @@ Notes:
   <img src="images/esp32-gui.png" alt="The ESP32's web page: state RUNNING with uptime, Power on and Force off buttons, then the Console panel with FPS and game, GPU, CPU, power, fan and VRAM tiles, a pending warm-reboot notice and the bc250-tune switches" width="380">
 </p>
 
-The page at `http://bc250.local` (or the IP shown in its footer) is served by the ESP32 itself, with no
+The page at `http://<esp32-ip>` (the IP the router reserves for the ESP32; `http://bc250.local` also
+works where the network resolves mDNS) is served by the ESP32 itself, with no
 internet dependency. It shows the state (`OFF`, `STARTING`, `RUNNING`, `STOPPING`) with the ESP32's
 uptime, a **Power on** button that is enabled only when off, and a **Force off** button that is enabled
 only when running. The footer shows the Wi-Fi signal, whether OTA is armed (`OTA ready` only while

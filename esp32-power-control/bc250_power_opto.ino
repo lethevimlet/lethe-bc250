@@ -37,7 +37,8 @@
 const char *WIFI_SSID = "YOUR_SSID";
 const char *WIFI_PASS = "YOUR_PASSWORD";   // WPA2 requires 8-63 chars.
                                            // Leave "" for an open network.
-const char *MDNS_NAME = "bc250";           // -> http://bc250.local
+const char *MDNS_NAME = "bc250";           // -> http://bc250.local where mDNS
+                                           // works; otherwise use the reserved IP
 
 // bc250-api on the console (see ../bc250-api). The web page polls it from
 // the *browser*, every 5 s while the machine is RUNNING, so the ESP32 does
