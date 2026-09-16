@@ -44,7 +44,7 @@ const char *MDNS_NAME = "bc250";           // -> http://bc250.local
 // no extra work. This is only the default: the address can be changed from
 // the page footer (or GET /rest/console?url=...) and is kept in NVS, so a
 // new console IP does not need a reflash. "" hides the console panel.
-const char *CONSOLE_API = "http://192.168.2.17:8250";
+const char *CONSOLE_API = "http://YOUR_CONSOLE_IP:8250";   // e.g. http://192.168.1.50:8250
 Preferences prefs;
 String consoleApi;                         // NVS value, else CONSOLE_API
 
@@ -436,7 +436,7 @@ void loadConsoleApi() {
   prefs.end();
 }
 
-// GET /rest/console?url=http://192.168.2.17:8250   ("" = back to the compiled default)
+// GET /rest/console?url=http://<console-ip>:8250   ("" = back to the compiled default)
 void handleConsole() {
   if (!server.hasArg("url")) {
     server.send(400, "application/json", "{\"error\":\"url missing\"}");

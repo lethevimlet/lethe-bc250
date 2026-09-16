@@ -432,7 +432,7 @@ POST /api/sleep, /api/wake       fake sleep / wake (through the BC-250 Sleep plu
 
 ```bash
 sudo bc250-api/install.sh                       # on the BC-250
-curl http://192.168.2.17:8250/api/status        # from anywhere on the LAN
+curl http://<console-ip>:8250/api/status         # from anywhere on the LAN
 ```
 
 FPS and the focused game come from gamescope's own stats pipe, which SteamOS creates and nothing
