@@ -267,7 +267,7 @@ from voltage, see §4.2), 8 cores at 51 °C, 35 W package power, 6144 MB VRAM at
 | `GPU_MIN` / `GPU_MAX` | The governor's frequency range. 500 MHz floor saves ~10 W at idle; 1850 MHz is the image default ceiling. | live |
 | `CU` 24 … 40 | Routes WGPs (two CUs each) through `bc250-cu-live-manager`, any even count from the stock 24 to all 40. Extra WGPs go on one shader row at a time, so 24, 32 and 40 are the symmetric, known-good steps; the counts in between leave the rows one WGP apart, which the dispatcher copes with but which is less efficient per WGP and far less tested. Use them as a ladder to find what a board tolerates, then settle on 32 or 40. At 40: compute ~1.6x, games only a few % (fill-rate bound), ~+30 W. | live, re-applied at boot |
 | `CORES` 6 / 8 | Enables the two dormant cores with an SMU message (technique from [GabriWar/bc250-core-cu-unlock](https://github.com/GabriWar/bc250-core-cu-unlock)). Nothing is flashed. | warm reboot; a cold boot reverts |
-| `CORES_AUTO_REBOOT` | The core mask does not survive a power-off, so a cold boot with `CORES=8` comes up with 6 cores until a warm reboot. `on` makes the boot service do that reboot itself, once (a persistent stamp rules out a loop). Adds ~40 s to a power-on. | next cold boot |
+| `CORES_AUTO_REBOOT` | The core mask does not survive a power-off, so a cold boot with `CORES=8` comes up with 6 cores until a warm reboot. `on` makes the boot service do that reboot itself, once (a persistent stamp rules out a loop). Adds ~40 s to a power-on, and every power-on then ends in a warm reboot: keep controller dongles on a board USB port (§7). | next cold boot |
 | `HUD` | One-line MangoHud layout as Performance Overlay level 1 (files in [`decky-bc250-tune/mangohud/`](decky-bc250-tune/mangohud/)) | next game launch |
 | `RES` | Gaming Mode output resolution (e.g. 1080p on a 4K panel) | gaming session restart |
 
@@ -779,6 +779,12 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
   Steam's power menu hangs the board; with it installed (§4.5) that entry runs the fake sleep and the
   real suspend is masked. For powering down, always use **Shutdown** and let the ESP32 circuit cut
   the PSU.
+* **Plug controller dongles into a board USB port, not a hub.** The Xbox 360 wireless receiver hung
+  on every warm reboot while it sat behind a hub on the board's xHCI controller: it stalled its first
+  descriptor read and stopped answering until physically unplugged, and nothing in software could
+  power-cycle it (the root ports have no power switching and the hub's ganged switching never drops
+  VBUS). On one of the board's own USB 2.0 ports (the OHCI controller) it survives warm reboots. This
+  matters more than it sounds: with `CORES_AUTO_REBOOT` every power-on ends in a warm reboot.
 * **The image ships no VRAM tool.** `bc250memcfg` writing the split into CMOS is the way on the stock
   BIOS; the alternative is a modded BIOS.
 * **40 CU and 8 cores are a silicon lottery.** They work on this board; they will not work on every
