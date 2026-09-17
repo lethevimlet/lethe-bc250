@@ -257,14 +257,14 @@ from voltage, see §4.2), 8 cores at 51 °C, 35 W package power, 6144 MB VRAM at
 > years, others artifact, crash or fail to launch games at 40 CU, or hang after the core unlock. Nothing
 > in this guide can predict which you have. Enable one unlock at a time, test with demanding games and a
 > stress run while watching temperatures in the HUD, and only keep what stays stable. If 40 CUs
-> misbehave, try `CU=32` before giving up on the unlock. Both unlocks
+> misbehave, step down (`CU=36`, `32`, …) until it is stable rather than giving up on the unlock. Both unlocks
 > revert easily: `CU=24` is live, and a cold boot (power off) restores 6 cores.
 
 | Switch | What it does | Applies |
 |--------|--------------|---------|
 | `UMA_SIZE` | VRAM / system-RAM split of the 16 GB, written to CMOS with [bc250memcfg](https://github.com/fanoush/bc250_memcfg) (built from source at install). Survives reinstalls; only a CMOS clear resets it. | next reboot |
 | `GPU_MIN` / `GPU_MAX` | The governor's frequency range. 500 MHz floor saves ~10 W at idle; 1850 MHz is the image default ceiling. | live |
-| `CU` 24 / 32 / 40 | Routes WGPs through `bc250-cu-live-manager`: the stock 24, 32 (one extra WGP on each of the four shader rows, a balanced middle step for a board that misbehaves at 40) or all 40. At 40: compute ~1.6x, games only a few % (fill-rate bound), ~+30 W. | live, re-applied at boot |
+| `CU` 24 … 40 | Routes WGPs (two CUs each) through `bc250-cu-live-manager`, any even count from the stock 24 to all 40. Extra WGPs go on one shader row at a time, so 32 and 40 are symmetric and the other steps leave the rows one WGP apart: a ladder for finding what a board tolerates. At 40: compute ~1.6x, games only a few % (fill-rate bound), ~+30 W. | live, re-applied at boot |
 | `CORES` 6 / 8 | Enables the two dormant cores with an SMU message (technique from [GabriWar/bc250-core-cu-unlock](https://github.com/GabriWar/bc250-core-cu-unlock)). Nothing is flashed. | warm reboot; a cold boot reverts |
 | `CORES_AUTO_REBOOT` | The core mask does not survive a power-off, so a cold boot with `CORES=8` comes up with 6 cores until a warm reboot. `on` makes the boot service do that reboot itself, once (a persistent stamp rules out a loop). Adds ~40 s to a power-on. | next cold boot |
 | `HUD` | One-line MangoHud layout as Performance Overlay level 1 (files in [`decky-bc250-tune/mangohud/`](decky-bc250-tune/mangohud/)) | next game launch |

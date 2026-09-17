@@ -5,7 +5,7 @@
 # Toggles, from one config file (/etc/bc250-tune/config) or the interactive menu:
 #   UMA_SIZE  VRAM/RAM split written to CMOS via bc250memcfg (fanoush)      -> reboot
 #   GPU_MIN / GPU_MAX  cyan-skillfish-governor-smu frequency range (MHz)     -> live
-#   CU        24 (stock), 32 (one extra WGP per shader row) or 40 (all WGPs), via bc250-cu-live-manager -> live
+#   CU        24 (stock) .. 40 (all WGPs) in steps of 2, via bc250-cu-live-manager               -> live
 #   CORES     6 (stock) or 8 (SMU msg 0x98 core-mask unlock, GabriWar)      -> warm reboot
 #   HUD       on/off: minimal one-line MangoHud layout (Gaming Mode preset 1) -> next game launch
 #   RES       Gaming Mode (gamescope) output resolution, e.g. 1920x1080 / native -> session restart
@@ -25,7 +25,7 @@ set -uo pipefail
 unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 CONF_DIR=/etc/bc250-tune
 CONF="$CONF_DIR/config"
 STATE_DIR=/run/bc250-tune
@@ -82,7 +82,7 @@ write_conf() {
 UMA_SIZE=$UMA_SIZE          # VRAM carve-out in MB (>=256, 16 MB steps). CMOS; needs a reboot.
 GPU_MIN=$GPU_MIN            # GPU governor floor, MHz (500 = lowest safe-point, saves ~10 W idle)
 GPU_MAX=$GPU_MAX            # GPU governor ceiling, MHz (image default 1850; 2000 = hotter)
-CU=$CU                      # 24 = stock, 32 = one extra WGP per shader row, 40 = all WGPs (live, re-applied at boot)
+CU=$CU                      # 24 (stock) .. 40 (all WGPs), even numbers; 32/40 symmetric (live, re-applied at boot)
 CORES=$CORES                # 6 = stock, 8 = SMU core unlock (needs a WARM reboot; a cold boot reverts)
 CORES_AUTO_REBOOT=$CORES_AUTO_REBOOT   # on = warm-reboot once automatically after a cold boot so CORES=8 enumerates (adds ~40 s to power-on)
 HUD=$HUD                    # on = install the one-line MangoHud layout as Gaming Mode overlay level 1
@@ -196,6 +196,8 @@ gov_apply() {
 # ---------------------------------------------------------------------------------------------
 # Compute units (24 <-> 40) via the image's bc250-cu-live-manager
 # ---------------------------------------------------------------------------------------------
+CU_WGP_ORDER="0.0.3 0.1.3 1.0.3 1.1.3 0.0.4 0.1.4 1.0.4 1.1.4"   # SE.SH.WGP, fill order for CU > 24
+cu_valid() { case "$1" in 24|26|28|30|32|34|36|38|40) return 0;; *) return 1;; esac; }
 cu_mgr() {
     if have bc250-cu-live-manager; then echo bc250-cu-live-manager
     elif [ -x /usr/share/bc250-40cu/vendor/bc250-cu-live-manager/bc250-cu-live-manager.sh ]; then echo /usr/share/bc250-40cu/vendor/bc250-cu-live-manager/bc250-cu-live-manager.sh
@@ -212,20 +214,22 @@ cu_count() {   # live SPI-routed CU count (needs root + umr); falls back to cach
 cu_apply() {
     local m cur; m=$(cu_mgr)
     [ -n "$m" ] || { warn "bc250-cu-live-manager not found (not a -40cu image?); skipping CU"; return; }
-    case "$CU" in 24|32|40) ;; *) die "CU must be 24, 32 or 40";; esac
+    cu_valid "$CU" || die "CU must be an even number from 24 to 40"
     # our unit owns the boot-time table; make sure the image's own service does not fight it
     systemctl is-enabled "$IMAGE_CU_SVC" >/dev/null 2>&1 && { systemctl disable --now "$IMAGE_CU_SVC" >/dev/null 2>&1; log "CU: disabled $IMAGE_CU_SVC (bc250-tune manages the table now)"; }
     cur=$(cu_count)
     if [ "$cur" = "$CU" ]; then log "CU: already $cur/40 routed"; return; fi
     # Each of the 4 shader rows (SE0.SH0, SE0.SH1, SE1.SH0, SE1.SH1) has WGP0-2 on from the factory and
-    # WGP3-4 disabled; one WGP is two CUs. 32 = WGP3 on every row (balanced), 40 = everything.
-    local i
+    # WGP3-4 disabled; one WGP is two CUs. The extra WGPs are switched on in CU_WGP_ORDER, one row at
+    # a time, so the rows stay within one WGP of each other: 32 and 40 are symmetric, the rest are not.
+    local i extra list
+    extra=$(( (CU - 24) / 2 )); list=""; [ $extra -gt 0 ] && list=$(echo $CU_WGP_ORDER | cut -d' ' -f1-$extra)
     for i in 1 2 3; do
-        case "$CU" in
-            40) "$m" --yes enable all >/dev/null 2>&1 ;;
-            32) "$m" --yes stock-dispatch >/dev/null 2>&1; "$m" --yes enable-wgp 0.0.3 0.1.3 1.0.3 1.1.3 >/dev/null 2>&1 ;;
-            *)  "$m" --yes stock-dispatch >/dev/null 2>&1 ;;
-        esac
+        if [ "$CU" = 40 ]; then "$m" --yes enable all >/dev/null 2>&1
+        else
+            "$m" --yes stock-dispatch >/dev/null 2>&1
+            [ $extra -gt 0 ] && "$m" --yes enable-wgp $list >/dev/null 2>&1
+        fi
         cur=$(cu_count); [ "$cur" = "$CU" ] && break; sleep 2
     done
     [ "$cur" = "$CU" ] && log "CU: $CU/40 routed (live)" || warn "CU: wanted $CU, manager reports $cur"
@@ -432,7 +436,7 @@ cmd_status() {
 # Reject a bad value before anything is written: a config with an invalid key would make every
 # later `apply` (including the boot-time one) die at that key and skip the rest.
 validate_conf() {
-    case "$CU" in 24|32|40) ;; *) die "CU must be 24, 32 or 40 (got '$CU')";; esac
+    cu_valid "$CU" || die "CU must be an even number from 24 to 40 (got '$CU')"
     case "$CORES" in 6|8) ;; *) die "CORES must be 6 or 8 (got '$CORES')";; esac
     case "$CORES_AUTO_REBOOT" in on|off) ;; *) die "CORES_AUTO_REBOOT must be on or off (got '$CORES_AUTO_REBOOT')";; esac
     case "$HUD" in on|off) ;; *) die "HUD must be on or off (got '$HUD')";; esac
@@ -484,7 +488,7 @@ cmd_menu() {
             UMA)    v=$(whiptail --menu "VRAM carve-out (MB). Rest is system RAM (16 GB total)." 20 60 9 512 "" 1024 "" 2048 "" 3072 "" 4096 "" 6144 "(default)" 8192 "(BIOS default)" 10240 "" 12288 "" 3>&1 1>&2 2>&3) && UMA_SIZE=$v ;;
             GPUMAX) v=$(whiptail --menu "GPU governor max (MHz)" 15 50 5 1500 "cool/quiet" 1700 "" 1850 "image default" 2000 "hot, ~140 W" 3>&1 1>&2 2>&3) && GPU_MAX=$v ;;
             GPUMIN) v=$(whiptail --menu "GPU governor min / idle (MHz)" 12 50 2 500 "lowest, ~-10 W idle" 1000 "image default" 3>&1 1>&2 2>&3) && GPU_MIN=$v ;;
-            CU)     v=$(whiptail --menu "Compute units (applies live)" 13 60 3 24 "stock" 32 "one extra WGP per shader row" 40 "all WGPs (+30 W, ~+5% games, 1.6x compute)" 3>&1 1>&2 2>&3) && CU=$v ;;
+            CU)     v=$(whiptail --menu "Compute units (applies live; 2 per WGP, rows filled one at a time)" 19 60 9 24 "stock" 26 "" 28 "" 30 "" 32 "symmetric: one extra WGP per row" 34 "" 36 "" 38 "" 40 "all WGPs (+30 W, ~+5% games, 1.6x compute)" 3>&1 1>&2 2>&3) && CU=$v ;;
             CORES)  v=$(whiptail --menu "CPU cores" 12 60 2 6 "stock" 8 "SMU unlock, needs WARM reboot" 3>&1 1>&2 2>&3) && CORES=$v ;;
             AUTORB) v=$(whiptail --menu "After a cold boot with 8 cores configured, warm-reboot once automatically (adds ~40 s to power-on)" 12 70 2 on "" off "" 3>&1 1>&2 2>&3) && CORES_AUTO_REBOOT=$v ;;
             HUD)    v=$(whiptail --menu "Custom one-line MangoHud (Gaming Mode overlay level 1)" 12 60 2 on "" off "" 3>&1 1>&2 2>&3) && HUD=$v ;;

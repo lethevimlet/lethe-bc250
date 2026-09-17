@@ -114,8 +114,8 @@ function Content() {
         <PanelSectionRow>
           <DropdownItem
             label="Compute units"
-            description="Live. 32 = one extra WGP per shader row, a middle step if 40 misbehaves. 40: +~30 W, ~+5 % in games, 1.6x compute"
-            rgOptions={[opt(24, "24 (stock)"), opt(32, "32"), opt(40, "40 (all WGPs)")]}
+            description="Live, 2 per WGP. 32 and 40 are symmetric across the shader rows; step down until stable. 40: +~30 W, ~+5 % in games, 1.6x compute"
+            rgOptions={[24, 26, 28, 30, 32, 34, 36, 38, 40].map((n) => opt(n, n === 24 ? "24 (stock)" : n === 32 ? "32 (symmetric)" : n === 40 ? "40 (all WGPs)" : String(n)))}
             selectedOption={st.cu.config}
             disabled={busy}
             onChange={(o) => apply("cu", String(o.data))}

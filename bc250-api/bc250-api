@@ -48,7 +48,7 @@ VALUE_RE = re.compile(r"^[A-Za-z0-9x]{1,16}$")  # 6144, 1850, 40, on, native, 19
 VALUE_OK = {
     "uma": lambda v: v.isdigit() and int(v) >= 256 and int(v) % 16 == 0,
     "gpu-min": str.isdigit, "gpu-max": str.isdigit,
-    "cu": lambda v: v in ("24", "32", "40"), "cores": lambda v: v in ("6", "8"),
+    "cu": lambda v: v.isdigit() and 24 <= int(v) <= 40 and int(v) % 2 == 0, "cores": lambda v: v in ("6", "8"),
     "cores-auto-reboot": lambda v: v in ("on", "off"), "hud": lambda v: v in ("on", "off"),
     "res": lambda v: v == "native" or re.match(r"^\d{3,4}x\d{3,4}$", v) is not None,
 }

@@ -25,7 +25,7 @@ bc250-tune 1.0.0 — config: /etc/bc250-tune/config   user: deck
 |-----|--------|--------------|--------------|
 | `UMA_SIZE` | MB, ≥ 256, 16 MB steps (512 … 12288) | VRAM / system-RAM split of the 16 GB GDDR6. Written into battery-backed CMOS with [bc250memcfg](https://github.com/fanoush/bc250_memcfg) (built from source at install). Survives reinstalls and BIOS flashes; only a CMOS clear resets it. | next reboot |
 | `GPU_MIN` / `GPU_MAX` | MHz | `[frequency-range]` of the image's `cyan-skillfish-governor-smu`. 500 MHz floor saves ~10 W at idle; 1850 is the image default ceiling; 2000 is hotter (~140 W). | live |
-| `CU` | `24` / `32` / `40` | Routes WGPs through the image's `bc250-cu-live-manager`: the stock 24 CUs, 32 (one extra WGP on each of the four shader rows, a balanced middle step for boards that misbehave at 40), or all 20 WGPs (40 CUs). Compute scales ~1.6x; games gain only a few % (they are fill-rate bound). ~+30 W. | live, re-applied at boot |
+| `CU` | `24` … `40`, even | Routes WGPs (two CUs each) through the image's `bc250-cu-live-manager`. 24 is stock; the extra WGPs are enabled one shader row at a time, so 32 and 40 are symmetric and the other steps leave the four rows one WGP apart (fine, just uneven). A ladder for finding what a given board tolerates. At 40 compute scales ~1.6x, games gain only a few % (they are fill-rate bound), ~+30 W. | live, re-applied at boot |
 | `CORES` | `6` / `8` | Enables the two dormant Zen 2 cores by sending SMU message `0x98` (core-mask register `0x0115A870`), the technique from [GabriWar/bc250-core-cu-unlock](https://github.com/GabriWar/bc250-core-cu-unlock). Nothing is flashed. | **warm reboot** to appear; a **cold boot** (power removed) always reverts to 6 |
 | `CORES_AUTO_REBOOT` | `on` / `off` | The SMU core mask does not survive a power-off, so a cold boot with `CORES=8` always comes up with 6 cores until a warm reboot. With `on`, the boot service does that reboot itself, once (a persistent stamp prevents a loop). Adds ~40 s to a power-on. | next cold boot |
 | `HUD` | `on` / `off` | Installs a one-line MangoHud layout as **Performance Overlay level 1** in Gaming Mode (and as the Desktop-Mode `MangoHud.conf`). | next game launch |
@@ -85,7 +85,7 @@ LAN. The ESP32 power page uses it for its Console panel.
 
 ```bash
 sudo bc250-tune menu                       # whiptail TUI (works over ssh or in a Desktop-Mode terminal)
-sudo bc250-tune set cu 40                  # keys: uma gpu-min gpu-max cu cores cores-auto-reboot hud res
+sudo bc250-tune set cu 32                  # keys: uma gpu-min gpu-max cu cores cores-auto-reboot hud res
 sudo bc250-tune set cores 8 uma 8192       # several at once; prints what still needs a reboot
 sudo bc250-tune apply                      # re-apply /etc/bc250-tune/config (idempotent)
 sudo bc250-tune status [--json]            # everything, incl. pending reboot / session restart
