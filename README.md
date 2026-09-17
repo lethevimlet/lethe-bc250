@@ -73,6 +73,18 @@ reference this guide leans on. Start there if something here is not covered.
 
 ## 0. Quick start
 
+The software side has a guided installer. On the BC-250 (once Bazzite is on it, §3) it clones the
+repo into `~/lethe-bc250` and lets you tick what to install: `bc250-tune` with its boot service,
+Decky Loader, the Tune and Sleep plugins, `bc250-api`. Run the same line on your laptop or desktop
+and it offers the ESP32 firmware helper instead (build, first flash over USB, later updates over the
+air). Re-running it later is the update path.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lethevimlet/lethe-bc250/main/install.sh | bash
+# prefer to read it first?  git clone https://github.com/lethevimlet/lethe-bc250 && cd lethe-bc250 && ./install.sh
+# scripted:                 ./install.sh --all   |   ./install.sh --only tune,api
+```
+
 The whole build, in order. Each step links to the section with the details.
 
 1. **Parts** — get everything in [§1](#1-components). The EPS12V → 2× Micro-Fit power cable is not
@@ -83,13 +95,14 @@ The whole build, in order. Each step links to the section with the details.
    Default or Customize, not Full Speed, in the BIOS ([§3.1](#31-before-the-os)).
 3. **OS** — install stock Bazzite (deck), then rebase to the 62fixolab `-40cu` image and reboot
    ([§3](#3-install-bazzite-and-the-62fixolab-bc-250-image)).
-4. **Tune** — clone this repo on the BC-250 and run `sudo ./bc250-tune install`; optionally add the
-   Decky plugin for the Steam Quick Access menu ([§4](#4-tuning-bc250-tune)) and
-   `sudo bc250-api/install.sh` for the stats and switches over the network ([§4.6](#46-stats-and-switches-over-the-network-bc250-api)).
+4. **Tune** — run the installer above on the BC-250 and tick `bc250-tune`, Decky Loader, the two
+   plugins and `bc250-api` (or do it by hand: [§4](#4-tuning-bc250-tune),
+   [§4.6](#46-stats-and-switches-over-the-network-bc250-api)).
    Set the Performance Overlay slider to level 1 for the HUD. Treat 40 CU and 8 cores as optional
    experiments: each board is a silicon lottery.
-5. **Power button** — build the ESP32 optocoupler wiring, flash the firmware with the Arduino IDE, and
-   test with the multimeter at each step ([§5](#5-soft-power-control-with-an-esp32)).
+5. **Power button** — build the ESP32 optocoupler wiring, flash the firmware (the installer's ESP32
+   helper on a laptop, or the Arduino IDE), and test with the multimeter at each step
+   ([§5](#5-soft-power-control-with-an-esp32)).
 6. **Case** — print the STLs, fit the inserts, mount the two fans on the double shroud, assemble
    ([§6](#6-3d-printed-case)).
 7. **Use** — Shutdown from Steam powers the PSU down by itself; press the button to start. Never use
@@ -272,6 +285,9 @@ from voltage, see §4.2), 8 cores at 51 °C, 35 W package power, 6144 MB VRAM at
 | `RES` | Gaming Mode output resolution (e.g. 1080p on a 4K panel) | gaming session restart |
 
 ### 4.1 Install
+
+The quick way is the guided installer from §0 (`curl … | bash` on the BC-250, tick what you want). By
+hand:
 
 On the BC-250, from a Desktop Mode terminal:
 
@@ -571,6 +587,19 @@ PC817's pins are close together and a generous joint bridges them easily.
 
 ### 5.7 Flashing the firmware with the Arduino IDE
 
+The scripted way, from a laptop or desktop (Linux or macOS), needs no Arduino IDE:
+
+```bash
+git clone https://github.com/lethevimlet/lethe-bc250 && cd lethe-bc250
+./esp32-power-control/flash.sh usb        # first flash over USB; asks for Wi-Fi, OTA password, console address once
+./esp32-power-control/flash.sh ota        # later updates over Wi-Fi; refuses unless the console is OFF and OTA is armed
+```
+
+It installs `arduino-cli` and the ESP32 core under your home, keeps your values in
+`esp32-power-control/config.local` (gitignored) and builds from a copy of the sketch, so the repo's
+`bc250_power_opto.ino` keeps its placeholders. The same helper is what §0's installer offers when it
+is run on a machine that is not a BC-250. The manual IDE route:
+
 1. **Install the ESP32 core.** Arduino IDE 2.x → File → Preferences → *Additional boards manager
    URLs*: `https://espressif.github.io/arduino-esp32/package_esp32_index.json`. Then Tools → Board →
    Boards Manager, search `esp32`, install **esp32 by Espressif Systems**. No other libraries are
@@ -615,6 +644,9 @@ The MAC address printed at boot (also shown on the web page and in `/rest/status
 fixed IP on the router.
 
 ### 5.8 Updating the firmware over the air (OTA)
+
+Scripted: `./esp32-power-control/flash.sh ota` builds, checks that the ESP32 reports `OFF` with OTA
+armed (and refuses otherwise), uploads, and waits for it to come back. By hand:
 
 After the first USB flash, later versions can be sent over Wi-Fi. **The console must be powered
 off first.** OTA only arms while the firmware is in the `OFF` state, on purpose: an update reboots the
