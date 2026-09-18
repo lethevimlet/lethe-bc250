@@ -60,7 +60,7 @@ cd "$DIR"
 
 # ------------------------------------------------------------------ what can be installed here
 declare -A DESC=(
-    [tune]="bc250-tune: VRAM split, GPU range, CU / core unlocks, HUD, resolution + boot service"
+    [tune]="bc250-tune: VRAM split, GPU range, CU / core unlocks, fan curve, HUD, resolution + boot services"
     [decky]="Decky Loader (needed by the two plugins; installed with ujust if missing)"
     [tune-plugin]="BC-250 Tune plugin for the Steam Quick Access menu"
     [sleep-plugin]="BC-250 Sleep plugin: fake sleep, wake on any button, quiet fans"
@@ -139,6 +139,7 @@ if is_bc250; then
     todo+=("Gaming Mode: Performance Overlay level 1 for the HUD line; Quick Access → Decky for the plugins")
     todo+=("The ESP32 firmware is built and flashed from another PC: run this same installer there")
     todo+=("Config lives in /etc/bc250-tune/config; 'sudo bc250-tune menu' or the Decky plugin to change it")
+    todo+=("Quieter idle with 4-pin PWM fans: 'sudo bc250-tune set fan-curve on' (off by default; BIOS fan mode not Full Speed)")
 else
     todo+=("On the console, run the installer again for bc250-tune, the plugins and bc250-api")
 fi
