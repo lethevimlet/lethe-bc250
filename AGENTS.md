@@ -11,7 +11,7 @@ depend on each other.
 | `decky-bc250-tune/bc250-tune` | one bash script: every tuning switch, the boot-time re-apply (`apply --boot`), the fan-curve daemon (`fan-daemon`), `status --json` | the console, as root |
 | `decky-bc250-tune/decky-plugin/` | Decky plugin that only calls `bc250-tune`; `src/index.tsx` → `dist/index.js` (committed) | the console |
 | `decky-bc250-sleep/` | Decky plugin: fake sleep, wake on input, quiet fans, control socket for the API; `main.py` + `src/index.tsx` → `dist/index.js` (committed) | the console |
-| `bc250-api/` | REST service (Python stdlib) on port 8250: stats, fps from gamescope's stats pipe, tune switches, sleep/wake | the console |
+| `bc250-api/` | REST service (Python stdlib) on port 8250: stats, fps from gamescope's stats pipe, tune switches, sleep/wake, poweroff; `panel.js` = the console part of the ESP32 page, served at `/panel.js` | the console |
 | `esp32-power-control/` | ESP32-C3 sketch (`bc250_power_opto.ino`, the web page is a raw string inside it) and `flash.sh` | the ESP32; `flash.sh` on a laptop |
 | `install.sh` | the `curl \| bash` guided installer | console or laptop |
 | `images/esp32-gui.png` | screenshot of the ESP32 page, embedded in the README | |
@@ -21,9 +21,14 @@ depend on each other.
 
 * **A switch touches five places.** Adding or changing a tune option means: the script (defaults,
   `load_conf`, `write_conf`, `validate_conf`, `cmd_set` keys, `cmd_apply`, the JSON and text status,
-  the whiptail menu, `VERSION`), the Decky plugin (`index.tsx`, then rebuild `dist/index.js`), the ESP32
-  page (`OPTS` and `cur()` in the sketch), `bc250-api` (`TUNE_KEYS` and `VALUE_OK`), and the docs
-  (the switch tables in `README.md` and `decky-bc250-tune/README.md`). Then the screenshot.
+  the whiptail menu, `VERSION`), the Decky plugin (`index.tsx`, then rebuild `dist/index.js`), the
+  console panel (`OPTS` and `cur()` in `bc250-api/panel.js`, bump its `VERSION`), `bc250-api`
+  (`TUNE_KEYS` and `VALUE_OK`), and the docs (the switch tables in `README.md` and
+  `decky-bc250-tune/README.md`). Then the screenshot. None of this needs an ESP32 reflash.
+* **The ESP32 sketch is for the ESP32's own things.** State row, the four buttons, the address
+  editor, the offline notice, and the loader that pulls `panel.js` from the console. The contract
+  between them (`bc250Panel.mount/update/busy`, documented in `bc250-api/README.md`) is what makes
+  reflashes rare; do not put console-side UI back into the sketch.
 * **Docs and installer move with the code.** Any new service, script, option or install step gets its
   README paragraph, its row in the tables, a line in `install.sh` if it changes what is installed,
   and a mention in the installer's closing hand-off list if a human has to do something.

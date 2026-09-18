@@ -5,6 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 install -m 0755 -o root -g root bc250-api /usr/local/bin/bc250-api
 install -m 0644 -o root -g root bc250-api.service /etc/systemd/system/bc250-api.service
+install -d -m 0755 /usr/local/share/bc250-api
+install -m 0644 -o root -g root panel.js /usr/local/share/bc250-api/panel.js
 systemctl daemon-reload
 systemctl enable --now bc250-api.service
 systemctl restart bc250-api.service

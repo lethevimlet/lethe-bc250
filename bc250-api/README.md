@@ -14,6 +14,7 @@ POST /api/tune/restart-session   -> `bc250-tune restart-session` (for a resoluti
 POST /api/sleep                  fake sleep through the BC-250 Sleep plugin (its control socket)
 POST /api/wake                   wake from it
 POST /api/poweroff               clean shutdown (systemctl poweroff); the ESP32 cuts the PSU once the board is down
+GET  /panel.js                   the console panel (tiles, pending actions, tune switches) as a script the ESP32 page loads
 ```
 
 Port 8250, JSON, CORS open (`Access-Control-Allow-Origin: *`) so a page served by another host
@@ -58,6 +59,24 @@ switches need it.
 `/api/status` answers in a few milliseconds: the sysfs sampler, the pipe reader and the tune
 refresh run in their own threads and the request only copies the latest snapshot.
 
+## The panel comes from the console
+
+Everything below the **Console** header on the ESP32 page is `panel.js`, served by this service and
+loaded by the page once the API answers. Changing tiles or switches therefore ships with
+`bc250-api` (re-run `install.sh` or the guided installer), not with an ESP32 reflash; the firmware
+only keeps the state row, the four buttons, the address editor and the offline notice. The contract
+the firmware relies on, keep it stable:
+
+```js
+window.bc250Panel.version                // string
+window.bc250Panel.mount(root, {api, refresh}) // renders into `root`; returns a handle
+handle.update(status)                    // after every successful GET /api/status
+handle.busy(bool)                        // page-level busy (sleep / shutdown in flight)
+```
+
+The panel shows its version in its last line, so a page whose panel looks stale is one reload away
+from the current one (`Cache-Control: no-store`).
+
 ## Install
 
 ```bash
@@ -83,4 +102,5 @@ stats and flip the tune switches, including a warm reboot. Do not expose port 82
 |------|------|
 | `bc250-api` | the service (Python 3, standard library only) |
 | `bc250-api.service` | systemd unit, `Restart=always` |
+| `panel.js` | the console panel the ESP32 page loads (installed to `/usr/local/share/bc250-api/`) |
 | `install.sh` | copy + enable |

@@ -183,39 +183,14 @@ button:disabled{opacity:.38;cursor:not-allowed}
 .id{margin-top:7px;color:#6d747e;font-size:.7em;text-align:center;
  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.4px;
  word-break:break-all}
-/* console panel */
+/* console panel: header, notice and buttons are here; the tiles and switches come from
+   bc250-api's panel.js so they update with the console, not with a reflash */
 #con{display:none;margin-top:18px;padding-top:16px;border-top:1px solid #2b3039}
 #con.show{display:block}
 .hd{display:flex;align-items:baseline;gap:8px;margin:0 0 10px}
 .hd h2{margin:0;font-size:.95em;font-weight:600}
 .hd .meta{font-size:.72em}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}
-.tile{background:#22262e;border-radius:11px;padding:10px 12px;min-width:0}
-.tile .k{color:#8b929c;font-size:.68em;text-transform:uppercase;letter-spacing:.6px}
-.tile .v{font-size:1.25em;font-weight:600;line-height:1.25;white-space:nowrap;
- overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-.tile .v small{font-size:.62em;font-weight:500;color:#8b929c;margin-left:2px}
-.tile .s{color:#8b929c;font-size:.68em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pend{display:none;margin:12px 0 0;padding:10px 12px;border-radius:11px;background:#3a2f16;
- color:#f0c674;font-size:.8em}
-.pend.show{display:block}
-.pend .btns{margin-top:8px}
-.pend button{min-height:40px;padding:8px 12px;background:#6b5420;font-size:.95em}
-.tune{margin-top:14px;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
-.row{display:flex;align-items:center;gap:10px;min-height:44px}
-.row .n{flex:1;min-width:0}
-.row .n b{font-weight:600;font-size:.9em;display:block}
-.row .n i{font-style:normal;color:#8b929c;font-size:.7em;display:block;white-space:nowrap;
- overflow:hidden;text-overflow:ellipsis}
-.seg{display:flex;background:#22262e;border-radius:9px;padding:3px;gap:3px;flex:none}
-.seg button{width:auto;min-height:36px;padding:6px 14px;border-radius:7px;background:transparent;
- color:#8b929c;font-size:.85em}
-.seg button.sel{background:#3a4150;color:#fff}
-select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;border-radius:9px;
- background:#22262e;color:#e6e8eb;font:inherit;font-size:.85em;max-width:48%}
-.busy .tune,.busy .pend{opacity:.5;pointer-events:none}
-/* tiles and switches only after a successful poll; a notice with retry otherwise */
-#con:not(.ok) .tiles,#con:not(.ok) .pend,#con:not(.ok) .tune{display:none}
+#con:not(.ok) #panel{display:none}
 #nocon{display:none;color:#8b929c;font-size:.8em}
 #con:not(.ok) #nocon{display:block}
 #nocon p{margin:0 0 8px}#nocon p:last-child{margin:0}
@@ -254,17 +229,7 @@ powers down and the PSU is cut once the board is off.</p>
 <p><a href="#" id="retry">retry</a> &nbsp;·&nbsp; <a href="#" id="chg">change address</a></p>
 <p>Live stats and the tune switches need the <b>bc250-api</b> service on the BC-250: see
 <a href="https:&#47;&#47;github.com/lethevimlet/lethe-bc250#46-stats-and-switches-over-the-network-bc250-api" target="_blank" rel="noopener">the README, §4.6</a>.</p></div>
-<div class="tiles">
-<div class="tile"><div class="k">FPS</div><div class="v" id="fps">–</div><div class="s" id="game"></div></div>
-<div class="tile"><div class="k">GPU</div><div class="v" id="gmhz">–</div><div class="s" id="gtemp"></div></div>
-<div class="tile"><div class="k">CPU</div><div class="v" id="ctemp">–</div><div class="s" id="cmhz"></div></div>
-<div class="tile"><div class="k">Power</div><div class="v" id="soc">–</div><div class="s" id="tot"></div></div>
-<div class="tile"><div class="k">Fan</div><div class="v" id="fan">–</div><div class="s" id="fans">rpm</div></div>
-<div class="tile"><div class="k">VRAM</div><div class="v" id="vram">–</div><div class="s" id="vrams"></div></div>
-</div>
-<div class="pend" id="pend"><span id="pendt"></span>
-<div class="btns"><button id="rb">Warm reboot</button><button id="rs">Restart session</button></div></div>
-<div class="tune" id="tune"></div>
+<div id="panel"></div>
 </div>
 <div class="net"><span id="rssi"></span><span id="ota"></span><span id="sense"></span>
 <span id="capi" title="tap to change the bc250-api address"></span></div>
@@ -273,7 +238,7 @@ powers down and the PSU is cut once the board is off.</p>
 <script>
 const $=i=>document.getElementById(i);
 function hms(s){const h=(s/3600|0),m=(s%3600/60|0);return h?h+"h "+m+"m":m+"m"}
-let api=null,running=false,ct=null,busy=false,tuneBuilt=false,conState=null,asleep=false;
+let api=null,running=false,ct=null,conState=null,asleep=false,panel=null,panelApi=null;
 // Status line: the ESP32's power state, refined by the console once bc250-api answers:
 // RUNNING = a game is running, IDLE = on with no game, SLEEP = the fake sleep holds it.
 function showState(s){
@@ -316,88 +281,29 @@ function setRunning(on){
 }
 function noCon(msg){setOk(false);$('cst').textContent='offline';$('nc').textContent=msg;
  conState=null;if(running)showState('RUNNING')}
-const fmt=(v,d=0)=>v==null?'–':Number(v).toFixed(d);
 async function cpoll(){
  if(!running||document.hidden)return;
  if(!api){noCon('No bc250-api address is set.');return}
  try{
   const c=new AbortController(),tm=setTimeout(()=>c.abort(),4000);
   const r=await fetch(api+'/api/status',{cache:'no-store',signal:c.signal});clearTimeout(tm);
-  const d=await r.json();render(d);setOk(true);
-  $('cst').textContent=d.asleep?'asleep':'live';
+  const d=await r.json();render(d);
+  if(!panel||panelApi!=api){await loadPanel();}
+  if(panel)panel.update(d);
+  setOk(true);$('cst').textContent=d.asleep?'asleep':'live';
  }catch(e){noCon('bc250-api is not answering at '+api.replace(/^https?:[/][/]/,'')+' (still booting, or not installed).')}
 }
+// The tiles and switches are bc250-api's panel.js: loaded once per page load, from the console.
+function loadPanel(){return new Promise(res=>{
+ const s=document.createElement('script');s.src=api+'/panel.js?t='+Date.now();
+ s.onload=()=>{try{panel=window.bc250Panel.mount($('panel'),{api:api,refresh:cpoll});panelApi=api}catch(e){panel=null;$('panel').textContent='panel error: '+e}res()};
+ s.onerror=()=>{panel=null;$('panel').innerHTML='<p class="warn">bc250-api answers but has no panel.js: update bc250-api on the console (installer).</p>';res()};
+ document.head.appendChild(s)})}
 function render(d){
  asleep=!!d.asleep;conState=asleep?'SLEEP':d.game_running?'RUNNING':'IDLE';showState('RUNNING');
  const b=$('slp');b.textContent=asleep?'Wake':'Sleep';b.className=asleep?'wake':'';
- $('fps').textContent=d.fps==null?'–':Math.round(d.fps);
- $('game').textContent=d.game||(d.focus=='steam'?'Steam':d.fps==null?'idle':'app '+d.focus);
- $('gmhz').innerHTML=(d.gpu.mhz_estimated?'~':'')+fmt(d.gpu.mhz)+'<small>MHz</small>';
- $('gtemp').textContent=fmt(d.gpu.temp_c)+' °C';
- $('ctemp').innerHTML=fmt(d.cpu.temp_c)+'<small>°C</small>';
- $('cmhz').textContent=d.cpu.cores+' cores · '+fmt(d.cpu.mhz/1000,1)+'GHz';
- $('soc').innerHTML=fmt(d.power.soc_w)+'<small>W SoC</small>';
- $('tot').textContent='~'+fmt(d.power.total_w)+' W total';
- $('fan').textContent=fmt(d.fan.rpm);
- $('vram').innerHTML=fmt(d.gpu.vram_used_mb/1024,1)+'<small>GB</small>';
- $('vrams').textContent='of '+fmt(d.gpu.vram_total_mb/1024,0)+' GB';
- renderTune(d.tune);
 }
-// ---- tune switches (bc250-tune through bc250-api)
-const OPTS={
- cu:{n:'Compute units',s:['24','26','28','30','32','34','36','38','40'],u:' CU',h:t=>t.cu.live+' routed · 32/40 symmetric'},
- cores:{n:'CPU cores',v:['6','8'],h:t=>t.cores.visible+' visible, needs a warm reboot'},
- 'cores-auto-reboot':{n:'Auto reboot for 8 cores',v:['on','off'],h:t=>'cold boot gives 6, then one auto reboot'},
- hud:{n:'HUD line',v:['on','off'],h:t=>'MangoHud overlay level 1'},
- 'fan-curve':{n:'Fan curve',v:['on','off'],h:t=>t.fan?(t.fan.curve=='on'?(t.fan.active?'software, ':'guard stopped it, ')+t.fan.rpm+' rpm':'BIOS curve, '+t.fan.rpm+' rpm'):'no fan header'},
- 'fan-min':{n:'Fan idle duty',s:['5','10','15','20','30','40'],u:' %',h:t=>t.fan?'below '+t.fan.low_c+' °C, 100 % at '+t.fan.high_c+' °C':''},
- 'gpu-min':{n:'GPU floor',s:['500','700','1000','1175'],u:' MHz',h:t=>'now '+(t.gpu.cur_mhz_estimated?'~':'')+t.gpu.cur_mhz+' MHz'},
- 'gpu-max':{n:'GPU ceiling',s:['1500','1700','1850','2000'],u:' MHz',h:t=>'2000 runs hotter'},
- uma:{n:'VRAM (UMA)',s:['2048','4096','6144','8192','10240','12288'],u:' MB',h:t=>'CMOS, needs a reboot'},
- res:{n:'Resolution',s:['native','1280x720','1920x1080','2560x1440','3840x2160'],u:'',h:t=>'session '+(t.res.session||'?')}
-};
-const cur=(t,k)=>({cu:t.cu.config,cores:t.cores.config,'cores-auto-reboot':t.cores.auto_reboot,hud:t.hud.config,'fan-curve':t.fan&&t.fan.curve,'fan-min':t.fan&&t.fan.min,'gpu-min':t.gpu.config_min,
- 'gpu-max':t.gpu.config_max,uma:t.uma.config,res:t.res.config})[k];
-function buildTune(){
- const box=$('tune');box.innerHTML='';
- for(const k in OPTS){const o=OPTS[k];
-  const row=document.createElement('div');row.className='row';
-  row.innerHTML='<div class="n"><b>'+o.n+'</b><i id="h-'+k+'"></i></div>';
-  if(o.v){const seg=document.createElement('div');seg.className='seg';seg.id='c-'+k;
-   o.v.forEach(v=>{const b=document.createElement('button');b.textContent=v;b.dataset.v=v;
-    b.onclick=()=>tset(k,v);seg.appendChild(b)});row.appendChild(seg);}
-  else{const sel=document.createElement('select');sel.id='c-'+k;
-   o.s.forEach(v=>{const e=document.createElement('option');e.value=v;e.textContent=v+o.u;sel.appendChild(e)});
-   sel.onchange=()=>tset(k,sel.value);row.appendChild(sel);}
-  box.appendChild(row);}
- $('rb').onclick=()=>tact('/api/tune/reboot','Warm reboot the console now?',3000);
- $('rs').onclick=()=>tact('/api/tune/restart-session','Restart the gaming session now? Steam will close.',3000);
- tuneBuilt=true;
-}
-function renderTune(t){
- if(!t){$('tune').style.display='none';$('pend').className='pend';return}
- if(!tuneBuilt)buildTune();$('tune').style.display='';
- if(busy)return;
- for(const k in OPTS){const o=OPTS[k],v=String(cur(t,k)),c=$('c-'+k);
-  $('h-'+k).textContent=o.h(t);
-  if(o.v){[...c.children].forEach(b=>b.className=b.dataset.v==v?'sel':'')}
-  else if(document.activeElement!=c){
-   if(![...c.options].some(e=>e.value==v)){const e=document.createElement('option');e.value=v;e.textContent=v+o.u;c.appendChild(e)}
-   c.value=v}}
- const p=t.pending||{},on=x=>x&&x!=='0'&&x!==0,msg=[on(p.reboot)?String(p.reboot).replace(/;\s*$/,''):'',on(p.session_restart)?'gaming session restart (resolution)':'',on(p.cold_boot)?'cold boot (power off) to return to 6 cores':''].filter(Boolean).join(' · ');
- $('pend').className='pend'+(msg?' show':'');$('pendt').textContent='Pending: '+msg;
- $('rb').style.display=on(p.reboot)?'':'none';
- $('rs').style.display=on(p.session_restart)?'':'none';
-}
-function setBusy(b){busy=b;$('con').classList.toggle('busy',b)}
-async function tset(k,v){
- setBusy(true);$('cst').textContent='applying '+k+'='+v;
- try{const r=await fetch(api+'/api/tune/set',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({key:k,value:v})}),j=await r.json();
-  if(!j.ok)alert('bc250-tune: '+(j.output||'failed'));
- }catch(e){alert('console unreachable')}
- setBusy(false);cpoll();
-}
+function setBusy(b){if(panel)panel.busy(b)}
 async function tact(path,q,wait){
  if(q&&!confirm(q))return;setBusy(true);$('cst').textContent=path.split('/').pop()+'…';
  try{const r=await fetch(api+path,{method:'POST'}),j=await r.json();if(!j.ok)alert(j.output||'failed')}

@@ -696,7 +696,10 @@ answers, the status line refines the ESP32's `RUNNING` into **RUNNING** (a game 
 **IDLE** (on, no game) or **SLEEP** (the fake sleep of §4.5 holds it, blue dot), and the button row
 grows to **Power on · Shut down · Sleep · Force off**: Shut down is a clean `systemctl poweroff`
 through `bc250-api` (the ESP32 cuts the PSU once the board reports down), Sleep / Wake drives the
-fake sleep. Tiles show FPS and the
+fake sleep. Everything below the **Console** header (the tiles, the pending notice, the switches)
+is `panel.js`, served by `bc250-api` and loaded by the page once the API answers, so that part
+updates with the console and never needs a reflash; the firmware keeps only the state row, the four
+buttons, the address editor and the offline notice. Tiles show FPS and the
 running game, GPU clock and temperature, CPU temperature with cores and clock, SoC and estimated
 total power, fan rpm and VRAM use. Below them are the `bc250-tune` switches (compute units, cores,
 HUD, GPU floor and ceiling, VRAM split, resolution): a tap runs `bc250-tune set` on the console, and
