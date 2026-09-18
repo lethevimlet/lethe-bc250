@@ -346,12 +346,14 @@ const OPTS={
  cores:{n:'CPU cores',v:['6','8'],h:t=>t.cores.visible+' visible, needs a warm reboot'},
  'cores-auto-reboot':{n:'Auto reboot for 8 cores',v:['on','off'],h:t=>'cold boot gives 6, then one auto reboot'},
  hud:{n:'HUD line',v:['on','off'],h:t=>'MangoHud overlay level 1'},
+ 'fan-curve':{n:'Fan curve',v:['on','off'],h:t=>t.fan?(t.fan.curve=='on'?(t.fan.active?'software, ':'guard stopped it, ')+t.fan.rpm+' rpm':'BIOS curve, '+t.fan.rpm+' rpm'):'no fan header'},
+ 'fan-min':{n:'Fan idle duty',s:['5','10','15','20','30','40'],u:' %',h:t=>t.fan?'below '+t.fan.low_c+' °C, 100 % at '+t.fan.high_c+' °C':''},
  'gpu-min':{n:'GPU floor',s:['500','700','1000','1175'],u:' MHz',h:t=>'now '+(t.gpu.cur_mhz_estimated?'~':'')+t.gpu.cur_mhz+' MHz'},
  'gpu-max':{n:'GPU ceiling',s:['1500','1700','1850','2000'],u:' MHz',h:t=>'2000 runs hotter'},
  uma:{n:'VRAM (UMA)',s:['2048','4096','6144','8192','10240','12288'],u:' MB',h:t=>'CMOS, needs a reboot'},
  res:{n:'Resolution',s:['native','1280x720','1920x1080','2560x1440','3840x2160'],u:'',h:t=>'session '+(t.res.session||'?')}
 };
-const cur=(t,k)=>({cu:t.cu.config,cores:t.cores.config,'cores-auto-reboot':t.cores.auto_reboot,hud:t.hud.config,'gpu-min':t.gpu.config_min,
+const cur=(t,k)=>({cu:t.cu.config,cores:t.cores.config,'cores-auto-reboot':t.cores.auto_reboot,hud:t.hud.config,'fan-curve':t.fan&&t.fan.curve,'fan-min':t.fan&&t.fan.min,'gpu-min':t.gpu.config_min,
  'gpu-max':t.gpu.config_max,uma:t.uma.config,res:t.res.config})[k];
 function buildTune(){
  const box=$('tune');box.innerHTML='';
@@ -379,10 +381,10 @@ function renderTune(t){
   else if(document.activeElement!=c){
    if(![...c.options].some(e=>e.value==v)){const e=document.createElement('option');e.value=v;e.textContent=v+o.u;c.appendChild(e)}
    c.value=v}}
- const p=t.pending||{},msg=[p.reboot,p.session_restart,p.cold_boot].filter(x=>x&&x!=='0').map(x=>String(x).replace(/;\s*$/,'')).join(' · ');
+ const p=t.pending||{},on=x=>x&&x!=='0'&&x!==0,msg=[on(p.reboot)?String(p.reboot).replace(/;\s*$/,''):'',on(p.session_restart)?'gaming session restart (resolution)':'',on(p.cold_boot)?'cold boot (power off) to return to 6 cores':''].filter(Boolean).join(' · ');
  $('pend').className='pend'+(msg?' show':'');$('pendt').textContent='Pending: '+msg;
- $('rb').style.display=p.reboot&&p.reboot!=='0'?'':'none';
- $('rs').style.display=p.session_restart&&p.session_restart!=='0'?'':'none';
+ $('rb').style.display=on(p.reboot)?'':'none';
+ $('rs').style.display=on(p.session_restart)?'':'none';
 }
 function setBusy(b){busy=b;$('con').classList.toggle('busy',b)}
 async function tset(k,v){

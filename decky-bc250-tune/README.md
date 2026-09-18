@@ -28,6 +28,7 @@ bc250-tune 1.0.0 — config: /etc/bc250-tune/config   user: deck
 | `CU` | `24` … `40`, even | Routes WGPs (two CUs each) through the image's `bc250-cu-live-manager`. 24 is stock; the extra WGPs are enabled one shader row at a time, so **24, 32 and 40 are the symmetric, known-good steps**. The counts in between leave the four rows one WGP apart: the hardware dispatcher copes with uneven rows, but each extra WGP then buys less than at a symmetric step and those layouts are far less tested, so treat them as a diagnostic ladder for finding what a board tolerates and settle on 32 or 40 once you know. At 40 compute scales ~1.6x, games gain only a few % (they are fill-rate bound), ~+30 W. | live, re-applied at boot |
 | `CORES` | `6` / `8` | Enables the two dormant Zen 2 cores by sending SMU message `0x98` (core-mask register `0x0115A870`), the technique from [GabriWar/bc250-core-cu-unlock](https://github.com/GabriWar/bc250-core-cu-unlock). Nothing is flashed. | **warm reboot** to appear; a **cold boot** (power removed) always reverts to 6 |
 | `CORES_AUTO_REBOOT` | `on` / `off` | The SMU core mask does not survive a power-off, so a cold boot with `CORES=8` always comes up with 6 cores until a warm reboot. With `on`, the boot service does that reboot itself, once (a persistent stamp prevents a loop). Adds ~40 s to a power-on. | next cold boot |
+| `FAN_CURVE` (+ `FAN_MIN`, `FAN_LOW_C`, `FAN_HIGH_C`) | `on` / `off` | A software fan curve: `bc250-fan.service` drives the NCT6686D header from the hotter of the CPU and GPU die every 3 s, `FAN_MIN` % (default 10) up to `FAN_LOW_C` (60 °C; the CPU die idles at ~55) rising to 100 % at `FAN_HIGH_C` (80 °C), ramping down slowly so it does not hunt. Needs 4-pin PWM fans on the header and a BIOS fan mode other than Full Speed. Guards hand the header back to the BIOS curve if a sensor stops reading, the fan stalls, or the fans do not follow PWM; the Sleep plugin's lower duty takes over during a fake sleep. | live |
 | `HUD` | `on` / `off` | Installs a one-line MangoHud layout as **Performance Overlay level 1** in Gaming Mode (and as the Desktop-Mode `MangoHud.conf`). | next game launch |
 | `RES` | `WxH` or `native` | Gaming Mode (gamescope) output resolution via `~/.config/environment.d/`. Forces the Steam UI and games to that mode, e.g. 1080p on a 4K panel. | gaming session restart |
 
@@ -85,7 +86,7 @@ LAN. The ESP32 power page uses it for its Console panel.
 
 ```bash
 sudo bc250-tune menu                       # whiptail TUI (works over ssh or in a Desktop-Mode terminal)
-sudo bc250-tune set cu 32                  # keys: uma gpu-min gpu-max cu cores cores-auto-reboot hud res
+sudo bc250-tune set cu 32                  # keys: uma gpu-min gpu-max cu cores cores-auto-reboot hud res fan-curve fan-min fan-low fan-high
 sudo bc250-tune set cores 8 uma 8192       # several at once; prints what still needs a reboot
 sudo bc250-tune apply                      # re-apply /etc/bc250-tune/config (idempotent)
 sudo bc250-tune status [--json]            # everything, incl. pending reboot / session restart

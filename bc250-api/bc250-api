@@ -42,7 +42,7 @@ SLEEP_SOCK = "/run/bc250-sleep/ctl.sock"
 TUNE_TTL = 30.0  # seconds between `bc250-tune status --json` runs (it forks umr/setpci, ~1 s)
 FPS_STALE_S = 20.0  # gamescope writes a line every 300 composited frames (5 s at 60 fps); older -> null
 SAMPLE_S = 1.0
-TUNE_KEYS = ("uma", "gpu-min", "gpu-max", "cu", "cores", "cores-auto-reboot", "hud", "res")
+TUNE_KEYS = ("uma", "gpu-min", "gpu-max", "cu", "cores", "cores-auto-reboot", "hud", "res", "fan-curve", "fan-min", "fan-low", "fan-high")
 VALUE_RE = re.compile(r"^[A-Za-z0-9x]{1,16}$")  # 6144, 1850, 40, on, native, 1920x1080
 # per-key value check, so a bad value never reaches `bc250-tune set` (which validates too)
 VALUE_OK = {
@@ -51,6 +51,9 @@ VALUE_OK = {
     "cu": lambda v: v.isdigit() and 24 <= int(v) <= 40 and int(v) % 2 == 0, "cores": lambda v: v in ("6", "8"),
     "cores-auto-reboot": lambda v: v in ("on", "off"), "hud": lambda v: v in ("on", "off"),
     "res": lambda v: v == "native" or re.match(r"^\d{3,4}x\d{3,4}$", v) is not None,
+    "fan-curve": lambda v: v in ("on", "off"),
+    "fan-min": lambda v: v.isdigit() and 5 <= int(v) <= 100,
+    "fan-low": lambda v: v.isdigit() and 30 <= int(v) <= 94, "fan-high": lambda v: v.isdigit() and 31 <= int(v) <= 95,
 }
 # bc250-tune must not inherit a caller's LD_LIBRARY_PATH (Decky's bundled OpenSSL breaks systemctl/umr)
 CLEAN_ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "HOME": "/root"}

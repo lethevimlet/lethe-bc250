@@ -14,7 +14,9 @@
 # volatile parts (CU table, core mask, CMOS check) at every boot.
 #
 #   CORES_AUTO_REBOOT on/off: warm-reboot once automatically after a cold boot so CORES=8 enumerates
-# Usage: bc250-tune {status [--json] | apply [--boot] | set KEY VALUE... | menu | hud-stats |
+#   FAN_CURVE on/off: bc250-fan.service drives the fan header from the hotter die (FAN_MIN % below
+#             FAN_LOW_C, 100 % at FAN_HIGH_C) instead of the BIOS curve; needs 4-pin PWM fans
+# Usage: bc250-tune {status [--json] | apply [--boot] | set KEY VALUE... | menu | hud-stats | fan-daemon |
 #                    reboot | restart-session | install | uninstall}
 #
 # SPDX-License-Identifier: MIT
@@ -25,7 +27,7 @@ set -uo pipefail
 unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-VERSION="1.3.0"
+VERSION="1.4.0"
 CONF_DIR=/etc/bc250-tune
 CONF="$CONF_DIR/config"
 STATE_DIR=/run/bc250-tune
@@ -37,6 +39,9 @@ GOV_CONF=/etc/cyan-skillfish-governor-smu/config.toml
 GOV_SVC=cyan-skillfish-governor-smu.service
 UNIT=bc250-tune.service
 UNIT_PATH=/etc/systemd/system/$UNIT
+FAN_UNIT=bc250-fan.service
+FAN_UNIT_PATH=/etc/systemd/system/$FAN_UNIT
+SLEEP_STATE=/run/bc250-sleep/state.json      # while this exists the Sleep plugin owns the fan header
 GPU_PCI=/sys/bus/pci/devices/0000:01:00.0
 IMAGE_CU_SVC=bc250-cu-live-manager.service
 MARK="# bc250-tune managed"
@@ -54,6 +59,10 @@ D_RES=1920x1080
 D_TOTAL_OFFSET_W=45      # HUD "TOTAL" = SoC package power + this (GDDR6, VRM loss, fan, SSD)
 D_TUNE_USER=             # empty = auto-detect the desktop user
 D_CORES_AUTO_REBOOT=off  # on = after a cold boot with CORES=8, warm-reboot once automatically so the 8 cores enumerate
+D_FAN_CURVE=off          # on = bc250-fan.service drives the fan header from the die temperature
+D_FAN_MIN=10             # % duty at and below FAN_LOW_C
+D_FAN_LOW_C=60           # °C (hotter of CPU and GPU die) up to which the fan stays at FAN_MIN; the CPU die idles at ~55
+D_FAN_HIGH_C=80          # °C at which it reaches 100 %
 AUTO_REBOOT_STAMP=/var/lib/bc250-tune/auto-reboot-stamp   # persistent: one automatic reboot per cold boot, never a loop
 AUTO_REBOOT_MIN_GAP=300
 
@@ -70,6 +79,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 load_conf() {
     UMA_SIZE=$D_UMA_SIZE GPU_MIN=$D_GPU_MIN GPU_MAX=$D_GPU_MAX CU=$D_CU CORES=$D_CORES
     HUD=$D_HUD RES=$D_RES TOTAL_OFFSET_W=$D_TOTAL_OFFSET_W TUNE_USER=$D_TUNE_USER CORES_AUTO_REBOOT=$D_CORES_AUTO_REBOOT
+    FAN_CURVE=$D_FAN_CURVE FAN_MIN=$D_FAN_MIN FAN_LOW_C=$D_FAN_LOW_C FAN_HIGH_C=$D_FAN_HIGH_C
     # shellcheck disable=SC1090
     [ -r "$CONF" ] && . "$CONF"
 }
@@ -85,6 +95,10 @@ GPU_MAX=$GPU_MAX            # GPU governor ceiling, MHz (image default 1850; 200
 CU=$CU                      # 24 (stock) .. 40 (all WGPs), even numbers; 32/40 symmetric (live, re-applied at boot)
 CORES=$CORES                # 6 = stock, 8 = SMU core unlock (needs a WARM reboot; a cold boot reverts)
 CORES_AUTO_REBOOT=$CORES_AUTO_REBOOT   # on = warm-reboot once automatically after a cold boot so CORES=8 enumerates (adds ~40 s to power-on)
+FAN_CURVE=$FAN_CURVE        # on = software fan curve from the die temperature (bc250-fan.service); off = the BIOS curve
+FAN_MIN=$FAN_MIN            # % duty at idle (at and below FAN_LOW_C); 4-pin PWM fans only
+FAN_LOW_C=$FAN_LOW_C        # °C up to which the fan stays at FAN_MIN (hotter of CPU and GPU die)
+FAN_HIGH_C=$FAN_HIGH_C      # °C at which the fan reaches 100 %
 HUD=$HUD                    # on = install the one-line MangoHud layout as Gaming Mode overlay level 1
 RES=$RES                    # Gaming Mode output, WxH or "native"
 TOTAL_OFFSET_W=$TOTAL_OFFSET_W   # HUD TOTAL = SoC watts + this estimate of the rest of the board
@@ -292,6 +306,98 @@ cores_apply() {
 }
 
 # ---------------------------------------------------------------------------------------------
+# Fan curve — bc250-fan.service (this script's fan-daemon) drives the NCT6686D header from the die
+# temperature. The nct6687 driver exposes pwmN; the BIOS fan mode must not be Full Speed (it ignores
+# PWM then). Guards: sensor unreadable, fan stalled, or fans that do not follow PWM at all -> back to
+# the BIOS curve and exit cleanly. While the Sleep plugin holds the header (its state file exists)
+# the daemon leaves it alone; the plugin restores what the daemon had set when it wakes.
+# ---------------------------------------------------------------------------------------------
+fan_hwmon() { local c; for c in nct6687 nct6686 nct6683; do hwmon_by_name $c; done | head -1; }
+fan_channel() {   # prints "hwmon-dir N" for the first spinning tach with a writable pwmN
+    local h n; h=$(fan_hwmon); [ -n "$h" ] || return 1
+    for n in 1 2 3 4 5 6 7 8; do
+        [ "$(cat "$h/fan${n}_input" 2>/dev/null || echo 0)" -gt 0 ] && [ -w "$h/pwm${n}_enable" ] && { echo "$h $n"; return 0; }
+    done; return 1
+}
+fan_read() {   # sets FAN_RPM FAN_DUTY FAN_MODE (auto|manual|none)
+    FAN_RPM=0; FAN_DUTY=0; FAN_MODE=none; local h n
+    read -r h n <<<"$(fan_channel 2>/dev/null)" || return 0
+    [ -n "$h" ] || return 0
+    FAN_RPM=$(cat "$h/fan${n}_input" 2>/dev/null || echo 0); FAN_DUTY=$(cat "$h/pwm$n" 2>/dev/null || echo 0)
+    [ "$(cat "$h/pwm${n}_enable" 2>/dev/null)" = 1 ] && FAN_MODE=manual || FAN_MODE=auto
+}
+die_temp_c() {   # hotter of CPU (k10temp) and GPU (amdgpu) dies, or "" if neither reads
+    local a k t="" v
+    a=$(hwmon_by_name amdgpu); k=$(hwmon_by_name k10temp)
+    for v in "$(cat "$a/temp1_input" 2>/dev/null)" "$(cat "$k/temp1_input" 2>/dev/null)"; do
+        [ -n "$v" ] || continue; v=$(( v / 1000 )); [ -z "$t" ] || [ "$v" -gt "$t" ] && t=$v
+    done; echo "$t"
+}
+fan_daemon() {
+    need_root; load_conf
+    local h n rpm0 duty last=-1 t ticks=0 stall=0 target pct
+    read -r h n <<<"$(fan_channel)" || { log "FAN: no controllable fan header (nct6687 driver loaded?), nothing to do"; exit 0; }
+    [ -n "$(die_temp_c)" ] || { log "FAN: no die temperature sensor, leaving the BIOS curve"; exit 0; }
+    trap 'echo 2 > "$h/pwm${n}_enable" 2>/dev/null; log "FAN: back to the BIOS curve"' EXIT
+    # baseline under the BIOS curve (the header may still be at a low manual duty from a previous run)
+    echo 2 > "$h/pwm${n}_enable"; sleep 8; rpm0=$(cat "$h/fan${n}_input")
+    log "FAN: curve on: $FAN_MIN % up to ${FAN_LOW_C} C, 100 % at ${FAN_HIGH_C} C (fan$n, $rpm0 rpm under the BIOS curve)"
+    echo 1 > "$h/pwm${n}_enable"
+    while :; do
+        if [ -e "$SLEEP_STATE" ]; then sleep 3; continue; fi        # the Sleep plugin owns the header now
+        t=$(die_temp_c); [ -n "$t" ] || { warn "FAN: temperature sensor stopped reading"; exit 0; }
+        if [ "$t" -le "$FAN_LOW_C" ]; then pct=$FAN_MIN
+        elif [ "$t" -ge "$FAN_HIGH_C" ]; then pct=100
+        else pct=$(( FAN_MIN + (100 - FAN_MIN) * (t - FAN_LOW_C) / (FAN_HIGH_C - FAN_LOW_C) )); fi
+        target=$(( pct * 255 / 100 ))
+        # ramp up at once, ramp down slowly (max 3 % per 3 s) so the fan does not hunt
+        if [ $last -ge 0 ] && [ $target -lt $last ] && [ $(( last - target )) -gt 8 ]; then duty=$(( last - 8 )); else duty=$target; fi
+        [ "$duty" != "$last" ] && { echo "$duty" > "$h/pwm$n"; last=$duty; }
+        rpm=$(cat "$h/fan${n}_input" 2>/dev/null || echo 0); ticks=$(( ticks + 1 ))
+        if [ "$rpm" -lt 200 ]; then stall=$(( stall + 1 )); [ $stall -ge 4 ] && { warn "FAN: fan stalled at duty $duty ($rpm rpm)"; exit 0; }; else stall=0; fi
+        # after 30 s at a low duty the rpm must have moved, or these fans do not follow PWM (3-pin, or a splitter without the PWM wire)
+        if [ $ticks -eq 10 ] && [ "$duty" -lt 128 ] && [ "$rpm0" -gt 0 ] && [ "$rpm" -gt $(( rpm0 * 9 / 10 )) ]; then
+            warn "FAN: fans did not slow down at duty $duty ($rpm0 -> $rpm rpm): no PWM control, leaving the BIOS curve"; exit 0
+        fi
+        sleep 3
+    done
+}
+fan_install_unit() {
+    cat > "$FAN_UNIT_PATH" <<EOF
+[Unit]
+Description=bc250-fan: software fan curve for the BC-250 (bc250-tune fan-daemon)
+ConditionPathExists=$BIN
+
+[Service]
+Type=simple
+ExecStart=$BIN fan-daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+}
+fan_apply() {
+    [ -f "$FAN_UNIT_PATH" ] || fan_install_unit
+    if [ "$FAN_CURVE" = on ]; then
+        systemctl enable "$FAN_UNIT" >/dev/null 2>&1
+        local sig="$FAN_MIN/$FAN_LOW_C/$FAN_HIGH_C"
+        # (re)start only when the curve changed or the daemon is not running, so an unrelated `set`
+        # does not bounce the fan; a clean guard exit shows as "stopped" in status until the next apply
+        if systemctl is-active "$FAN_UNIT" >/dev/null 2>&1 && [ "$(cat "$STATE_DIR/fan-sig" 2>/dev/null)" = "$sig" ]; then
+            log "FAN: curve already running ($FAN_MIN % up to ${FAN_LOW_C} C, 100 % at ${FAN_HIGH_C} C)"
+        else
+            echo "$sig" > "$STATE_DIR/fan-sig"
+            systemctl restart "$FAN_UNIT" && log "FAN: curve on ($FAN_MIN % up to ${FAN_LOW_C} C, 100 % at ${FAN_HIGH_C} C)"
+        fi
+    else
+        systemctl disable --now "$FAN_UNIT" >/dev/null 2>&1; log "FAN: BIOS curve"
+    fi
+}
+
+# ---------------------------------------------------------------------------------------------
 # MangoHud one-line HUD
 # ---------------------------------------------------------------------------------------------
 hud_line_conf() {   # $1 = extra lines (position/toggle for MangoHud.conf)
@@ -378,7 +484,7 @@ NEED_REBOOT=(); NEED_SESSION=0; NEED_COLD_BOOT=0
 cmd_apply() {
     need_root; load_conf; detect_user; mkdir -p "$STATE_DIR"
     local boot=0; [ "${1:-}" = "--boot" ] && boot=1
-    uma_apply; gov_apply; cu_apply; cores_apply; hud_apply; res_apply
+    uma_apply; gov_apply; cu_apply; cores_apply; hud_apply; res_apply; fan_apply
     echo "$T_USER" > "$STATE_DIR/user"
     if [ ${#NEED_REBOOT[@]} -gt 0 ]; then
         printf '%s\n' "${NEED_REBOOT[@]}" > "$STATE_DIR/reboot-needed"
@@ -411,12 +517,15 @@ cmd_status() {
     else [ -e "$STATE_DIR/session-restart-needed" ] && sess=1; fi
     cold=$([ -e "$STATE_DIR/coldboot-needed" ] && echo 1 || echo 0)
     local curmhz est; gov_read_mhz; curmhz=$GOV_MHZ; est=$GOV_MHZ_EST
+    fan_read; local fan_active=false; systemctl is-active "$FAN_UNIT" >/dev/null 2>&1 && fan_active=true
     if [ "${1:-}" = "--json" ]; then
-        printf '{"version":%s,"root":%s,"user":%s,"uma":{"config":%s,"cmos":%s,"live_mb":%s},"gpu":{"min":%s,"max":%s,"config_min":%s,"config_max":%s,"cur_mhz":%s,"cur_mhz_estimated":%s,"temp":%s},"cu":{"config":%s,"live":%s},"cores":{"config":%s,"mask":%s,"visible":%s,"auto_reboot":%s},"hud":{"config":%s,"installed":%s},"res":{"config":%s,"session":%s},"power":{"soc_w":%s,"total_w":%s,"cpu_temp":%s},"pending":{"reboot":%s,"session_restart":%s,"cold_boot":%s}}\n' \
+        printf '{"version":%s,"root":%s,"user":%s,"uma":{"config":%s,"cmos":%s,"live_mb":%s},"gpu":{"min":%s,"max":%s,"config_min":%s,"config_max":%s,"cur_mhz":%s,"cur_mhz_estimated":%s,"temp":%s},"cu":{"config":%s,"live":%s},"cores":{"config":%s,"mask":%s,"visible":%s,"auto_reboot":%s},"hud":{"config":%s,"installed":%s},"res":{"config":%s,"session":%s},"power":{"soc_w":%s,"total_w":%s,"cpu_temp":%s},"fan":{"curve":%s,"min":%s,"low_c":%s,"high_c":%s,"rpm":%s,"duty":%s,"mode":%s,"active":%s},"pending":{"reboot":%s,"session_restart":%s,"cold_boot":%s}}\n' \
             "$(json_str "$VERSION")" "$root" "$(json_str "$T_USER")" "$UMA_SIZE" "${ucmos:-null}" "$ulive" \
             "${gmin:-0}" "${gmax:-0}" "$GPU_MIN" "$GPU_MAX" "${curmhz:-0}" "$( [ "$est" = 1 ] && echo true || echo false )" "$gpu_t" \
             "$CU" "$cu" "$CORES" "${mask:-null}" "$vis" "$(json_str "$CORES_AUTO_REBOOT")" "$(json_str "$HUD")" "$(json_str "$hud")" \
-            "$(json_str "$RES")" "$(json_str "${cur_res:-}")" "$soc" "$(( soc + TOTAL_OFFSET_W ))" "$cpu_t" "$(json_str "$rb")" "$sess" "$cold"
+            "$(json_str "$RES")" "$(json_str "${cur_res:-}")" "$soc" "$(( soc + TOTAL_OFFSET_W ))" "$cpu_t" \
+            "$(json_str "$FAN_CURVE")" "$FAN_MIN" "$FAN_LOW_C" "$FAN_HIGH_C" "$FAN_RPM" "$FAN_DUTY" "$(json_str "$FAN_MODE")" "$fan_active" \
+            "$(json_str "$rb")" "$sess" "$cold"
         return
     fi
     echo "bc250-tune $VERSION — config: $CONF   user: $T_USER"
@@ -427,6 +536,7 @@ cmd_status() {
     printf '  %-10s config %-9s installed: %s\n' HUD "$HUD" "$hud"
     printf '  %-10s config %-9s session: %s\n' RES "$RES" "${cur_res:-not running}"
     printf '  %-10s SoC %s W, TOTAL ~%s W\n' POWER "$soc" "$(( soc + TOTAL_OFFSET_W ))"
+    printf '  %-10s config %-9s %s rpm, duty %s/255 (%s), curve service %s\n' FAN "$FAN_CURVE" "$FAN_RPM" "$FAN_DUTY" "$FAN_MODE" "$( $fan_active && echo running || echo stopped )"
     [ -n "$rb" ] && echo "  PENDING    reboot needed: $rb"
     [ "$sess" = 1 ] && echo "  PENDING    Gaming Mode session restart needed (RES)"
     [ "$cold" = 1 ] && echo "  PENDING    cold boot (power off) needed to go back to 6 cores"
@@ -446,17 +556,22 @@ validate_conf() {
     case "$GPU_MIN$GPU_MAX" in ''|*[!0-9]*) die "GPU_MIN/GPU_MAX must be numbers (got '$GPU_MIN'/'$GPU_MAX')";; esac
     [ "$GPU_MIN" -le "$GPU_MAX" ] || die "GPU_MIN ($GPU_MIN) must not exceed GPU_MAX ($GPU_MAX)"
     case "$TOTAL_OFFSET_W" in ''|*[!0-9]*) die "TOTAL_OFFSET_W must be a number (got '$TOTAL_OFFSET_W')";; esac
+    case "$FAN_CURVE" in on|off) ;; *) die "FAN_CURVE must be on or off (got '$FAN_CURVE')";; esac
+    case "$FAN_MIN$FAN_LOW_C$FAN_HIGH_C" in ''|*[!0-9]*) die "FAN_MIN/FAN_LOW_C/FAN_HIGH_C must be numbers";; esac
+    [ "$FAN_MIN" -ge 5 ] && [ "$FAN_MIN" -le 100 ] || die "FAN_MIN must be 5..100 % (got $FAN_MIN)"
+    [ "$FAN_LOW_C" -ge 30 ] && [ "$FAN_HIGH_C" -le 95 ] && [ "$FAN_LOW_C" -lt "$FAN_HIGH_C" ] || die "FAN_LOW_C < FAN_HIGH_C within 30..95 C (got $FAN_LOW_C/$FAN_HIGH_C)"
 }
 
 cmd_set() {
     need_root; load_conf; local apply=1
-    [ $# -ge 2 ] || die "usage: bc250-tune set KEY VALUE [KEY VALUE ...] [--no-apply]   keys: uma gpu-min gpu-max cu cores cores-auto-reboot hud res"
+    [ $# -ge 2 ] || die "usage: bc250-tune set KEY VALUE [KEY VALUE ...] [--no-apply]   keys: uma gpu-min gpu-max cu cores cores-auto-reboot hud res fan-curve fan-min fan-low fan-high"
     while [ $# -gt 0 ]; do
         case "$1" in
             --no-apply) apply=0; shift; continue ;;
             uma|UMA_SIZE) UMA_SIZE=$2 ;; gpu-min|GPU_MIN) GPU_MIN=$2 ;; gpu-max|GPU_MAX) GPU_MAX=$2 ;;
             cu|CU) CU=$2 ;; cores|CORES) CORES=$2 ;; hud|HUD) HUD=$2 ;; res|RES) RES=$2 ;;
             cores-auto-reboot|CORES_AUTO_REBOOT) case "$2" in on|off) CORES_AUTO_REBOOT=$2 ;; *) die "cores-auto-reboot must be on or off" ;; esac ;;
+            fan-curve|FAN_CURVE) FAN_CURVE=$2 ;; fan-min|FAN_MIN) FAN_MIN=$2 ;; fan-low|FAN_LOW_C) FAN_LOW_C=$2 ;; fan-high|FAN_HIGH_C) FAN_HIGH_C=$2 ;;
             total-offset|TOTAL_OFFSET_W) TOTAL_OFFSET_W=$2 ;; user|TUNE_USER) TUNE_USER=$2 ;;
             *) die "unknown key: $1" ;;
         esac
@@ -473,13 +588,14 @@ cmd_menu() {
         load_conf
         local st; st=$(cmd_status 2>/dev/null)
         local choice
-        choice=$(whiptail --title "bc250-tune $VERSION" --menu "$st" 27 96 10 \
+        choice=$(whiptail --title "bc250-tune $VERSION" --menu "$st" 28 96 11 \
             UMA    "VRAM split: $UMA_SIZE MB (reboot)" \
             GPUMAX "GPU max clock: $GPU_MAX MHz (live)" \
             GPUMIN "GPU idle clock: $GPU_MIN MHz (live)" \
             CU     "Compute units: $CU (live)" \
             CORES  "CPU cores: $CORES (8 = warm reboot; back to 6 = cold boot)" \
             AUTORB "Auto warm reboot after a cold boot for 8 cores: $CORES_AUTO_REBOOT" \
+            FAN    "Software fan curve: $FAN_CURVE ($FAN_MIN % to ${FAN_LOW_C} C, 100 % at ${FAN_HIGH_C} C)" \
             HUD    "Custom MangoHud line: $HUD" \
             RES    "Gaming Mode resolution: $RES (session restart)" \
             APPLY  "Apply now" \
@@ -491,6 +607,7 @@ cmd_menu() {
             CU)     v=$(whiptail --menu "Compute units (applies live; 2 per WGP, rows filled one at a time)" 19 60 9 24 "stock" 26 "" 28 "" 30 "" 32 "symmetric: one extra WGP per row" 34 "" 36 "" 38 "" 40 "all WGPs (+30 W, ~+5% games, 1.6x compute)" 3>&1 1>&2 2>&3) && CU=$v ;;
             CORES)  v=$(whiptail --menu "CPU cores" 12 60 2 6 "stock" 8 "SMU unlock, needs WARM reboot" 3>&1 1>&2 2>&3) && CORES=$v ;;
             AUTORB) v=$(whiptail --menu "After a cold boot with 8 cores configured, warm-reboot once automatically (adds ~40 s to power-on)" 12 70 2 on "" off "" 3>&1 1>&2 2>&3) && CORES_AUTO_REBOOT=$v ;;
+            FAN)    v=$(whiptail --menu "Software fan curve (4-pin PWM fans; BIOS fan mode not Full Speed)" 14 70 5 off "BIOS curve" 10 "on, 10 % at idle" 15 "on, 15 % at idle" 20 "on, 20 % at idle" 30 "on, 30 % at idle" 3>&1 1>&2 2>&3) && { if [ "$v" = off ]; then FAN_CURVE=off; else FAN_CURVE=on; FAN_MIN=$v; fi; } ;;
             HUD)    v=$(whiptail --menu "Custom one-line MangoHud (Gaming Mode overlay level 1)" 12 60 2 on "" off "" 3>&1 1>&2 2>&3) && HUD=$v ;;
             RES)    v=$(whiptail --menu "Gaming Mode output resolution" 14 50 4 1920x1080 "" 2560x1440 "" 3840x2160 "" native "panel default" 3>&1 1>&2 2>&3) && RES=$v ;;
             APPLY)  write_conf; cmd_apply 2>&1 | tee "$STATE_DIR/last-apply.log" >/dev/null; whiptail --title "apply" --textbox "$STATE_DIR/last-apply.log" 20 90; continue ;;
@@ -527,12 +644,13 @@ ExecStart=$BIN apply --boot
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload; systemctl enable "$UNIT" >/dev/null 2>&1
-    log "installed $BIN, $UNIT (enabled). Applying config..."
+    fan_install_unit
+    log "installed $BIN, $UNIT (enabled), $FAN_UNIT. Applying config..."
     cmd_apply
 }
 cmd_uninstall() {
     need_root; load_conf; detect_user
-    systemctl disable --now "$UNIT" >/dev/null 2>&1; rm -f "$UNIT_PATH"; systemctl daemon-reload
+    systemctl disable --now "$UNIT" "$FAN_UNIT" >/dev/null 2>&1; rm -f "$UNIT_PATH" "$FAN_UNIT_PATH"; systemctl daemon-reload
     HUD=off hud_apply; RES=native res_apply
     [ -f "$GOV_CONF.bc250-tune.orig" ] && { cp "$GOV_CONF.bc250-tune.orig" "$GOV_CONF"; systemctl restart "$GOV_SVC" 2>/dev/null; log "governor config restored"; }
     rm -rf "$STATE_DIR"; rm -f "$BIN"
@@ -543,6 +661,7 @@ usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
 
 case "${1:-}" in
     hud-stats)       load_conf; hud_stats ;;
+    fan-daemon)      fan_daemon ;;
     status)          cmd_status "${2:-}" ;;
     apply)           cmd_apply "${2:-}" ;;
     set)             shift; cmd_set "$@" ;;

@@ -22,6 +22,7 @@ type Status = {
   hud: { config: string; installed: string };
   res: { config: string; session: string };
   power: { soc_w: number; total_w: number; cpu_temp: number };
+  fan?: { curve: string; min: number; low_c: number; high_c: number; rpm: number; duty: number; mode: string; active: boolean };
   pending: { reboot: string; session_restart: number; cold_boot: number };
 };
 type SetResult = { ok: boolean; output: string };
@@ -105,6 +106,11 @@ function Content() {
         <PanelSectionRow>
           <Field label="VRAM" focusable>{st.uma.live_mb} MB{st.res.session ? ` · ${st.res.session}` : ""}</Field>
         </PanelSectionRow>
+        {st.fan && (
+          <PanelSectionRow>
+            <Field label="Fan" focusable>{st.fan.rpm} rpm · {Math.round((st.fan.duty * 100) / 255)} % · {st.fan.curve === "on" ? (st.fan.active ? "software curve" : "curve stopped (guard)") : "BIOS curve"}</Field>
+          </PanelSectionRow>
+        )}
         {pending.map((p) => (
           <PanelSectionRow key={p}><Field label="Pending" focusable>{p}</Field></PanelSectionRow>
         ))}
@@ -166,6 +172,28 @@ function Content() {
           <ButtonItem layout="below" disabled={busy} onClick={() => runAction("reboot", warmReboot)}>
             Warm reboot now
           </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="Fans">
+        <PanelSectionRow>
+          <ToggleField
+            label="Software fan curve"
+            description="Follows the hotter die instead of the BIOS curve. 4-pin PWM fans; BIOS fan mode not Full Speed. Guards hand the header back if the fan stalls or does not respond"
+            checked={st.fan?.curve === "on"}
+            disabled={busy || !st.fan}
+            onChange={(v) => apply("fan-curve", v ? "on" : "off")}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <DropdownItem
+            label="Idle duty"
+            description={`Below ${st.fan?.low_c ?? 60} °C; 100 % at ${st.fan?.high_c ?? 80} °C (fan-low / fan-high in the config)`}
+            rgOptions={[5, 10, 15, 20, 30, 40].map((n) => opt(n, `${n} %`))}
+            selectedOption={st.fan?.min ?? 10}
+            disabled={busy || st.fan?.curve !== "on"}
+            onChange={(o) => apply("fan-min", String(o.data))}
+          />
         </PanelSectionRow>
       </PanelSection>
 
