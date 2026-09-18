@@ -170,9 +170,10 @@ button{width:100%;min-height:48px;padding:13px 14px;border:0;border-radius:11px;
  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
  transition:background .15s,opacity .15s}
 #on{background:#2f7d4a}#off{background:#8a3030}
-/* Sleep/Wake joins Power on / Force off as a third button once bc250-api answers */
-#slp{display:none;background:#2f4f7d}#slp.wake{background:#2f7d4a}
-.card.ok .btns.main{grid-template-columns:1fr 1fr 1fr}.card.ok #slp{display:block}
+/* Once bc250-api answers the row grows to: Power on | Shut down | Sleep | Force off */
+#slp,#sd{display:none}#slp{background:#2f4f7d}#slp.wake{background:#2f7d4a}#sd{background:#5a5f6b}
+.card.ok .btns.main{grid-template-columns:repeat(4,1fr)}.card.ok #slp,.card.ok #sd{display:block}
+.card.ok .btns.main button{padding:13px 2px;font-size:.84em;white-space:nowrap}
 button:disabled{opacity:.38;cursor:not-allowed}
 .warn{margin:16px 0 0;color:#8b929c;font-size:.76em}
 .net{margin-top:16px;padding-top:13px;border-top:1px solid #2b3039;
@@ -240,11 +241,13 @@ select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;borde
 <span class="meta" id="up"></span></div>
 <div class="btns main">
 <button id="on">Power on</button>
-<button id="off">Force off</button>
+<button id="sd">Shut down</button>
 <button id="slp">Sleep</button>
+<button id="off">Force off</button>
 </div>
 <p class="warn">Force off is a hard cut, the same as holding the button for five
-seconds. For a clean shutdown, use the operating system.</p>
+seconds. Shut down (shown while the console answers) is the clean way: the OS
+powers down and the PSU is cut once the board is off.</p>
 <div id="con">
 <div class="hd"><h2>Console</h2><span class="meta" id="cst">connecting</span></div>
 <div id="nocon"><p id="nc"></p>
@@ -402,6 +405,7 @@ async function tact(path,q,wait){
  setBusy(false);setTimeout(cpoll,wait||800);
 }
 $('slp').onclick=()=>tact(asleep?'/api/wake':'/api/sleep');
+$('sd').onclick=()=>tact('/api/poweroff','Shut the console down cleanly?',3000);
 // Poll only while the tab is visible, to save battery on the phone
 // and needless radio wakeups on the ESP32.
 let t=null;

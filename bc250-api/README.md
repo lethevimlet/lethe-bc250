@@ -13,6 +13,7 @@ POST /api/tune/reboot            -> `bc250-tune reboot`          (warm reboot, f
 POST /api/tune/restart-session   -> `bc250-tune restart-session` (for a resolution change)
 POST /api/sleep                  fake sleep through the BC-250 Sleep plugin (its control socket)
 POST /api/wake                   wake from it
+POST /api/poweroff               clean shutdown (systemctl poweroff); the ESP32 cuts the PSU once the board is down
 ```
 
 Port 8250, JSON, CORS open (`Access-Control-Allow-Origin: *`) so a page served by another host
