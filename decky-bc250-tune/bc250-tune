@@ -27,7 +27,7 @@ set -uo pipefail
 unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-VERSION="1.4.0"
+VERSION="1.4.1"
 CONF_DIR=/etc/bc250-tune
 CONF="$CONF_DIR/config"
 STATE_DIR=/run/bc250-tune
@@ -319,6 +319,27 @@ fan_channel() {   # prints "hwmon-dir N" for the first spinning tach with a writ
         [ "$(cat "$h/fan${n}_input" 2>/dev/null || echo 0)" -gt 0 ] && [ -w "$h/pwm${n}_enable" ] && { echo "$h $n"; return 0; }
     done; return 1
 }
+# Why there may be no fan reading at all: ok | no-driver (nct6687 module not installed) |
+# no-chip (module present but the Super I/O does not answer: the driver logs "chip ID 0xffff" and
+# unloads; seen on some boards, nothing in software fixes it, the BIOS curve still runs the fans).
+fan_sensor() {
+    [ -n "$(fan_hwmon)" ] && { echo ok; return; }
+    # status is polled every few seconds (Decky, the API): diagnose once per boot, then answer from the cache
+    local c="$STATE_DIR/fan-sensor" r
+    [ -r "$c" ] && { cat "$c"; return; }
+    if ! modinfo nct6687 >/dev/null 2>&1; then r=no-driver
+    elif is_root && modprobe nct6687 >/dev/null 2>&1 && sleep 1 && [ -n "$(fan_hwmon)" ]; then echo ok; return
+    else r=no-chip; fi
+    is_root && { mkdir -p "$STATE_DIR"; echo "$r" > "$c"; }
+    echo "$r"
+}
+fan_sensor_text() {
+    case "$1" in
+        ok) echo "ok" ;;
+        no-driver) echo "no fan sensor: the nct6687 driver is not installed on this image" ;;
+        *) echo "no fan sensor: the board's Super I/O does not answer (nct6687 finds no chip); fan speed, fan curve and quiet fans are unavailable, the BIOS curve runs the fans" ;;
+    esac
+}
 fan_read() {   # sets FAN_RPM FAN_DUTY FAN_MODE (auto|manual|none)
     FAN_RPM=0; FAN_DUTY=0; FAN_MODE=none; local h n
     read -r h n <<<"$(fan_channel 2>/dev/null)" || return 0
@@ -381,7 +402,11 @@ EOF
 }
 fan_apply() {
     [ -f "$FAN_UNIT_PATH" ] || fan_install_unit
-    if [ "$FAN_CURVE" = on ]; then
+    local sensor; sensor=$(fan_sensor)
+    if [ "$FAN_CURVE" = on ] && [ "$sensor" != ok ]; then
+        systemctl disable --now "$FAN_UNIT" >/dev/null 2>&1
+        warn "FAN: curve is on in the config but cannot run: $(fan_sensor_text "$sensor")"
+    elif [ "$FAN_CURVE" = on ]; then
         systemctl enable "$FAN_UNIT" >/dev/null 2>&1
         local sig="$FAN_MIN/$FAN_LOW_C/$FAN_HIGH_C"
         # (re)start only when the curve changed or the daemon is not running, so an unrelated `set`
@@ -423,11 +448,13 @@ hud_stats() {   # printed by MangoHud's exec= every refresh; must be cheap and n
     local amd k gpu mhz soc cpu fan socw cu cores
     amd=$(hwmon_by_name amdgpu); k=$(hwmon_by_name k10temp)
     gpu=$(cat "$amd/temp1_input" 2>/dev/null); soc=$(cat "$amd/power1_average" 2>/dev/null); cpu=$(cat "$k/temp1_input" 2>/dev/null)
-    gov_read_mhz; mhz=$GOV_MHZ; fan=$(cat /sys/devices/platform/nct6687.*/hwmon/hwmon*/fan2_input 2>/dev/null | head -1)
+    gov_read_mhz; mhz=$GOV_MHZ
+    local fh n v; fan=""; fh=$(fan_hwmon)
+    if [ -n "$fh" ]; then fan=0; for n in 1 2 3 4 5 6 7 8; do v=$(cat "$fh/fan${n}_input" 2>/dev/null); [ "${v:-0}" -gt 0 ] && { fan=$v; break; }; done; fi
     socw=$(( ${soc:-0} / 1000000 )); cu=$(cat "$STATE_DIR/cu" 2>/dev/null || echo 24); cores=$(cores_visible)
     local mhzs; [ "$GOV_MHZ_EST" = 1 ] && mhzs="~${mhz:-0}MHz" || mhzs="${mhz:-0}MHz"
-    printf "GPU %2d°C %8s  CPU %2d°C  SoC %3dW  TOTAL ~%3dW  FAN %4d  %dCU %dC\n" \
-        "$(( ${gpu:-0} / 1000 ))" "$mhzs" "$(( ${cpu:-0} / 1000 ))" "$socw" "$(( socw + TOTAL_OFFSET_W ))" "${fan:-0}" "$cu" "$cores"
+    printf "GPU %2d°C %8s  CPU %2d°C  SoC %3dW  TOTAL ~%3dW  FAN %4s  %dCU %dC\n" \
+        "$(( ${gpu:-0} / 1000 ))" "$mhzs" "$(( ${cpu:-0} / 1000 ))" "$socw" "$(( socw + TOTAL_OFFSET_W ))" "${fan:-n/a}" "$cu" "$cores"
 }
 hud_is_on() { grep -qs "^$MARK" "$T_HOME/.config/MangoHud/presets.conf"; }
 hud_apply() {
@@ -518,13 +545,14 @@ cmd_status() {
     cold=$([ -e "$STATE_DIR/coldboot-needed" ] && echo 1 || echo 0)
     local curmhz est; gov_read_mhz; curmhz=$GOV_MHZ; est=$GOV_MHZ_EST
     fan_read; local fan_active=false; systemctl is-active "$FAN_UNIT" >/dev/null 2>&1 && fan_active=true
+    local fan_sens; fan_sens=$(fan_sensor)
     if [ "${1:-}" = "--json" ]; then
-        printf '{"version":%s,"root":%s,"user":%s,"uma":{"config":%s,"cmos":%s,"live_mb":%s},"gpu":{"min":%s,"max":%s,"config_min":%s,"config_max":%s,"cur_mhz":%s,"cur_mhz_estimated":%s,"temp":%s},"cu":{"config":%s,"live":%s},"cores":{"config":%s,"mask":%s,"visible":%s,"auto_reboot":%s},"hud":{"config":%s,"installed":%s},"res":{"config":%s,"session":%s},"power":{"soc_w":%s,"total_w":%s,"cpu_temp":%s},"fan":{"curve":%s,"min":%s,"low_c":%s,"high_c":%s,"rpm":%s,"duty":%s,"mode":%s,"active":%s},"pending":{"reboot":%s,"session_restart":%s,"cold_boot":%s}}\n' \
+        printf '{"version":%s,"root":%s,"user":%s,"uma":{"config":%s,"cmos":%s,"live_mb":%s},"gpu":{"min":%s,"max":%s,"config_min":%s,"config_max":%s,"cur_mhz":%s,"cur_mhz_estimated":%s,"temp":%s},"cu":{"config":%s,"live":%s},"cores":{"config":%s,"mask":%s,"visible":%s,"auto_reboot":%s},"hud":{"config":%s,"installed":%s},"res":{"config":%s,"session":%s},"power":{"soc_w":%s,"total_w":%s,"cpu_temp":%s},"fan":{"sensor":%s,"curve":%s,"min":%s,"low_c":%s,"high_c":%s,"rpm":%s,"duty":%s,"mode":%s,"active":%s},"pending":{"reboot":%s,"session_restart":%s,"cold_boot":%s}}\n' \
             "$(json_str "$VERSION")" "$root" "$(json_str "$T_USER")" "$UMA_SIZE" "${ucmos:-null}" "$ulive" \
             "${gmin:-0}" "${gmax:-0}" "$GPU_MIN" "$GPU_MAX" "${curmhz:-0}" "$( [ "$est" = 1 ] && echo true || echo false )" "$gpu_t" \
             "$CU" "$cu" "$CORES" "${mask:-null}" "$vis" "$(json_str "$CORES_AUTO_REBOOT")" "$(json_str "$HUD")" "$(json_str "$hud")" \
             "$(json_str "$RES")" "$(json_str "${cur_res:-}")" "$soc" "$(( soc + TOTAL_OFFSET_W ))" "$cpu_t" \
-            "$(json_str "$FAN_CURVE")" "$FAN_MIN" "$FAN_LOW_C" "$FAN_HIGH_C" "$FAN_RPM" "$FAN_DUTY" "$(json_str "$FAN_MODE")" "$fan_active" \
+            "$(json_str "$fan_sens")" "$(json_str "$FAN_CURVE")" "$FAN_MIN" "$FAN_LOW_C" "$FAN_HIGH_C" "$FAN_RPM" "$FAN_DUTY" "$(json_str "$FAN_MODE")" "$fan_active" \
             "$(json_str "$rb")" "$sess" "$cold"
         return
     fi
@@ -536,7 +564,8 @@ cmd_status() {
     printf '  %-10s config %-9s installed: %s\n' HUD "$HUD" "$hud"
     printf '  %-10s config %-9s session: %s\n' RES "$RES" "${cur_res:-not running}"
     printf '  %-10s SoC %s W, TOTAL ~%s W\n' POWER "$soc" "$(( soc + TOTAL_OFFSET_W ))"
-    printf '  %-10s config %-9s %s rpm, duty %s/255 (%s), curve service %s\n' FAN "$FAN_CURVE" "$FAN_RPM" "$FAN_DUTY" "$FAN_MODE" "$( $fan_active && echo running || echo stopped )"
+    if [ "$fan_sens" = ok ]; then printf '  %-10s config %-9s %s rpm, duty %s/255 (%s), curve service %s\n' FAN "$FAN_CURVE" "$FAN_RPM" "$FAN_DUTY" "$FAN_MODE" "$( $fan_active && echo running || echo stopped )"
+    else printf '  %-10s config %-9s %s\n' FAN "$FAN_CURVE" "$(fan_sensor_text "$fan_sens")"; fi
     [ -n "$rb" ] && echo "  PENDING    reboot needed: $rb"
     [ "$sess" = 1 ] && echo "  PENDING    Gaming Mode session restart needed (RES)"
     [ "$cold" = 1 ] && echo "  PENDING    cold boot (power off) needed to go back to 6 cores"

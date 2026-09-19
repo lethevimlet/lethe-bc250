@@ -819,6 +819,13 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
 * **The BIOS fan curve idles at 50 % duty.** Harmless on fans that ignore PWM, loud on ARCTIC P12 Pro
   (~1700 rpm at a 50 °C idle). `FAN_CURVE=on` in `bc250-tune` (§4) runs the header from the die
   temperature instead, ~600 rpm at idle, and the Sleep plugin takes it lower still during a fake sleep.
+* **`FAN n/a`: some boards have a silent Super I/O.** Fan speed, the fan curve and the Sleep plugin's
+  quiet fans all go through the NCT6686D via the `nct6687` driver. On one otherwise identical board
+  (same BIOS P3.00, same image) the chip answers on no address: the driver logs `chip ID 0xffff`
+  and unloads, and a raw read of its config ports and its `0xa20` sensor window returns all ones
+  even though the BIOS set up the LPC decode. Nothing in software fixes that. The project then shows
+  `FAN n/a` in the HUD and on the ESP32 page, `bc250-tune status` says why, and the fan curve is not
+  started; the fans simply follow the BIOS curve. Check with `sudo modprobe nct6687; dmesg | tail`.
 * **Plug controller dongles into a board USB port, not a hub.** The Xbox 360 wireless receiver hung
   on every warm reboot while it sat behind a hub on the board's xHCI controller: it stalled its first
   descriptor read and stopped answering until physically unplugged, and nothing in software could

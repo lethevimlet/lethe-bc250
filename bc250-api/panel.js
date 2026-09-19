@@ -13,7 +13,7 @@
  */
 (function () {
   'use strict';
-  var VERSION = '1.0.0';
+  var VERSION = '1.1.0';
   var CSS = [
     '.p-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}',
     '.p-tile{background:#22262e;border-radius:11px;padding:10px 12px;min-width:0}',
@@ -44,7 +44,11 @@
     cores: { n: 'CPU cores', v: ['6', '8'], h: function (t) { return t.cores.visible + ' visible, needs a warm reboot'; } },
     'cores-auto-reboot': { n: 'Auto reboot for 8 cores', v: ['on', 'off'], h: function () { return 'cold boot gives 6, then one auto reboot'; } },
     hud: { n: 'HUD line', v: ['on', 'off'], h: function () { return 'MangoHud overlay level 1'; } },
-    'fan-curve': { n: 'Fan curve', v: ['on', 'off'], h: function (t) { return t.fan ? (t.fan.curve == 'on' ? (t.fan.active ? 'software, ' : 'guard stopped it, ') + t.fan.rpm + ' rpm' : 'BIOS curve, ' + t.fan.rpm + ' rpm') : 'no fan header'; } },
+    'fan-curve': { n: 'Fan curve', v: ['on', 'off'], h: function (t) {
+      if (!t.fan) return 'needs a newer bc250-tune';
+      if (t.fan.sensor && t.fan.sensor != 'ok') return t.fan.sensor == 'no-driver' ? 'no fan sensor: nct6687 driver missing' : 'no fan sensor: Super I/O not answering';
+      return t.fan.curve == 'on' ? (t.fan.active ? 'software, ' : 'guard stopped it, ') + t.fan.rpm + ' rpm' : 'BIOS curve, ' + t.fan.rpm + ' rpm';
+    } },
     'fan-min': { n: 'Fan idle duty', s: ['5', '10', '15', '20', '30', '40'], u: ' %', h: function (t) { return t.fan ? 'below ' + t.fan.low_c + ' °C, 100 % at ' + t.fan.high_c + ' °C' : ''; } },
     'gpu-min': { n: 'GPU floor', s: ['500', '700', '1000', '1175'], u: ' MHz', h: function (t) { return 'now ' + (t.gpu.cur_mhz_estimated ? '~' : '') + t.gpu.cur_mhz + ' MHz'; } },
     'gpu-max': { n: 'GPU ceiling', s: ['1500', '1700', '1850', '2000'], u: ' MHz', h: function () { return '2000 runs hotter'; } },
@@ -120,7 +124,8 @@
       $('p-ctemps').textContent = d.cpu.cores + ' cores · ' + fmt(d.cpu.mhz / 1000, 1) + 'GHz';
       $('p-soc').innerHTML = fmt(d.power.soc_w) + '<small>W SoC</small>';
       $('p-socs').textContent = '~' + fmt(d.power.total_w) + ' W total';
-      $('p-fan').textContent = fmt(d.fan.rpm); $('p-fans').textContent = 'rpm';
+      var noFan = d.fan.rpm == null;
+      $('p-fan').textContent = noFan ? 'n/a' : fmt(d.fan.rpm); $('p-fans').textContent = noFan ? 'no fan sensor' : 'rpm';
       $('p-vram').innerHTML = fmt(d.gpu.vram_used_mb / 1024, 1) + '<small>GB</small>';
       $('p-vrams').textContent = 'of ' + fmt(d.gpu.vram_total_mb / 1024, 0) + ' GB';
     }

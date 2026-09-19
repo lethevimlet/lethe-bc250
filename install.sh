@@ -140,6 +140,11 @@ if is_bc250; then
     todo+=("The ESP32 firmware is built and flashed from another PC: run this same installer there")
     todo+=("Config lives in /etc/bc250-tune/config; 'sudo bc250-tune menu' or the Decky plugin to change it")
     todo+=("Quieter idle with 4-pin PWM fans: 'sudo bc250-tune set fan-curve on' (off by default; BIOS fan mode not Full Speed)")
+    sens=$(sudo /usr/local/bin/bc250-tune status --json 2>/dev/null | grep -o '"sensor":"[a-z-]*"' | cut -d'"' -f4 || true)
+    case "$sens" in
+        no-chip) todo+=("NOTE: this board's Super I/O does not answer, so there is no fan speed reading (HUD shows FAN n/a) and no fan curve / quiet fans; the BIOS curve runs the fans. README §7") ;;
+        no-driver) todo+=("NOTE: the nct6687 fan driver is not on this image, so there is no fan speed reading and no fan curve. README §7") ;;
+    esac
 else
     todo+=("On the console, run the installer again for bc250-tune, the plugins and bc250-api")
 fi

@@ -74,6 +74,11 @@ depend on each other.
   after installing; unloading the Sleep plugin wakes a sleeping console.
 * **gamescope stats pipe.** `$XDG_RUNTIME_DIR/gamescope-stats/stats.pipe` gets an `fps=` and `focus=`
   line every 300 composited frames, and nothing while the Steam UI sits idle. Nobody else reads it.
+* **No fan sensor at all.** On some boards the Super I/O does not answer (nct6687 logs `chip ID
+  0xffff` and unloads). Every consumer must cope with "no hwmon": the HUD prints `FAN n/a`,
+  `status --json` carries `fan.sensor` (`ok` / `no-driver` / `no-chip`), the fan daemon is not started,
+  the panel and the plugin say why. Never hardcode `fan2` or a platform path; use the first
+  spinning tach of whatever nct668x hwmon exists.
 * **BIOS fan mode.** In *Full Speed* the EC ignores every PWM write; nothing in software can tell
   except that the rpm never moves. Fans that never see the PWM wire behave the same.
 * **Sudo over ssh in tests.** sudo's no-tty timestamp is keyed by the parent pid, so a piped

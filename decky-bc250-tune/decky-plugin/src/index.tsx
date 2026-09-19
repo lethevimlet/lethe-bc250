@@ -22,7 +22,7 @@ type Status = {
   hud: { config: string; installed: string };
   res: { config: string; session: string };
   power: { soc_w: number; total_w: number; cpu_temp: number };
-  fan?: { curve: string; min: number; low_c: number; high_c: number; rpm: number; duty: number; mode: string; active: boolean };
+  fan?: { sensor?: string; curve: string; min: number; low_c: number; high_c: number; rpm: number; duty: number; mode: string; active: boolean };
   pending: { reboot: string; session_restart: number; cold_boot: number };
 };
 type SetResult = { ok: boolean; output: string };
@@ -108,7 +108,9 @@ function Content() {
         </PanelSectionRow>
         {st.fan && (
           <PanelSectionRow>
-            <Field label="Fan" focusable>{st.fan.rpm} rpm · {Math.round((st.fan.duty * 100) / 255)} % · {st.fan.curve === "on" ? (st.fan.active ? "software curve" : "curve stopped (guard)") : "BIOS curve"}</Field>
+            <Field label="Fan" focusable>{st.fan.sensor && st.fan.sensor !== "ok"
+              ? (st.fan.sensor === "no-driver" ? "no fan sensor (nct6687 driver missing)" : "no fan sensor (Super I/O not answering)")
+              : `${st.fan.rpm} rpm · ${Math.round((st.fan.duty * 100) / 255)} % · ${st.fan.curve === "on" ? (st.fan.active ? "software curve" : "curve stopped (guard)") : "BIOS curve"}`}</Field>
           </PanelSectionRow>
         )}
         {pending.map((p) => (
@@ -181,7 +183,7 @@ function Content() {
             label="Software fan curve"
             description="Follows the hotter die instead of the BIOS curve. 4-pin PWM fans; BIOS fan mode not Full Speed. Guards hand the header back if the fan stalls or does not respond"
             checked={st.fan?.curve === "on"}
-            disabled={busy || !st.fan}
+            disabled={busy || !st.fan || (!!st.fan.sensor && st.fan.sensor !== "ok")}
             onChange={(v) => apply("fan-curve", v ? "on" : "off")}
           />
         </PanelSectionRow>
