@@ -479,7 +479,10 @@ Firmware: [`esp32-power-control/bc250_power_opto.ino`](esp32-power-control/bc250
 * A button press lights the optocoupler's LED. The phototransistor on the other side pulls **PS_ON**
   to ground, the PSU starts, and the BC-250 auto-boots.
 * **TPMS1 pin 9** on the BC-250 carries 3.3 V only while the board is powered. The ESP32 watches it
-  through one series resistor, using its internal pulldown.
+  through one series resistor, using its internal pulldown. TPMS1 is the LPC bus brought out to
+  pins, and pin 9's neighbours are LPC data lines that also idle at 3.3 V: a sense wire that is one
+  pin off, or whose connector touches a neighbour, still makes the power logic work but knocks the
+  Super I/O off the bus (no fan reading, see step 8 below and §5.10).
 * On software shutdown that 3.3 V disappears, the ESP32 releases PS_ON, and the PSU returns to standby.
 
 The optocoupler keeps the two halves electrically separate: its input is an LED and its output a
@@ -585,6 +588,7 @@ PC817's pins are close together and a generous joint bridges them easily.
 | 5 | Connect pin 16 to the collector and pin 17 to the emitter. Attach the power cable to the BC-250 and set AUTO_PWRON1 to pins 1–2. Press the button; the PSU should start and the board boot. |
 | 6 | With the system running, measure TPMS1 pin 9 against ground. It should read 3.3 V and drop to 0 V after shutdown. Only then wire R2 to GPIO 6. |
 | 7 | With the system on, measure PS_ON to ground. It must sit below 0.8 V. |
+| 8 | With R2 wired and the system running, confirm the fan speed still reads: a real rpm in the BIOS hardware monitor, or in Linux `sensors` / the HUD's `FAN`. **65535 rpm in the BIOS, or `FAN n/a`, means the sense wire is loading an LPC line** instead of sitting on the 3.3 V pin: the 3.3 V / 0 V check of step 6 cannot tell them apart, because the LPC data lines next to pin 9 are pulled up to 3.3 V too. Move the wire, make sure its connector touches no neighbouring pin, and check again. |
 
 ### 5.7 Flashing the firmware with the Arduino IDE
 
@@ -733,6 +737,7 @@ The footer's `console …` entry shows the `bc250-api` address; tap it to change
 | PSU starts on its own | Pins 3 and 4 swapped, or the emitter tied to the logic ground node instead of pin 17 |
 | ESP32 won't boot with sense connected | Sense on a strapping pin; keep it on GPIO 6 |
 | Stays on after shutdown | TPMS1 pin 9 not actually dropping; remeasure |
+| HUD shows `FAN n/a`, BIOS hardware monitor shows 65535 rpm, no fan curve | The sense wire sits on, or touches, an LPC signal pin of TPMS1 and knocks the Super I/O off the bus. Unplug it from TPMS1 and the reading comes back; then seat it on the real 3.3 V pin, clear of its neighbours (build step 8) |
 | Shuts down during a warm reboot | Raise `SENSE_LOW_HOLD` above your reboot time |
 | Cuts power ~25 s after every boot | R2 too large, or the sense pin is short of margin |
 | Serial monitor stays blank | USB CDC On Boot not enabled, or not recompiled after changing it |
@@ -819,18 +824,18 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
 * **The BIOS fan curve idles at 50 % duty.** Harmless on fans that ignore PWM, loud on ARCTIC P12 Pro
   (~1700 rpm at a 50 °C idle). `FAN_CURVE=on` in `bc250-tune` (§4) runs the header from the die
   temperature instead, ~600 rpm at idle, and the Sleep plugin takes it lower still during a fake sleep.
-* **`FAN n/a`: some boards have a silent Super I/O.** Fan speed, the fan curve and the Sleep plugin's
-  quiet fans all go through the NCT6686D via the `nct6687` driver. On one otherwise identical board
-  (same BIOS P3.00, same image) the chip answers on no address: the driver logs `chip ID 0xffff`
-  and unloads, and a raw read of its config ports and its `0xa20` sensor window returns all ones
-  even though the BIOS set up the LPC decode. A side-by-side with a working board showed identical
-  firmware settings, and that the BIOS itself did not see the chip at power-on (the DSDT's `IOST`
-  Super I/O status is 0 and the keyboard-controller decode bit is left off), while the fans still
-  follow the BIOS curve: the chip runs, only its LPC link to the CPU is dead. Nothing in software
-  fixes that. The project then shows
-  `FAN n/a` in the HUD and on the ESP32 page, `bc250-tune status` says why, and the fan curve is not
-  started; the fans simply follow the BIOS curve. Check with `sudo modprobe nct6687; dmesg | tail`, or without Linux at all: on such a board the BIOS
-  hardware monitor shows the fan at **65535 rpm** (`0xFFFF`, the same unanswered read).
+* **`FAN n/a` and 65535 rpm in the BIOS: look at the TPMS1 sense wire first.** Fan speed, the fan
+  curve and the Sleep plugin's quiet fans all go through the NCT6686D via the `nct6687` driver. On a
+  second, identical build the chip answered on no address: the driver logged `chip ID 0xffff` and
+  unloaded, raw reads of its config ports and its `0xa20` window returned all ones, the BIOS
+  hardware monitor showed 65535 rpm, and a side-by-side with a working board showed identical
+  firmware settings but a DSDT whose `IOST` (Super I/O devices found at POST) was 0: the BIOS
+  could not see the chip either, while the fans still followed its curve. The cause was the ESP32
+  sense wire on the TPMS1 header. That header is the LPC bus, the pins next to the 3.3 V pin are LPC
+  data lines that also sit at 3.3 V, and a wire loading one of them leaves the power logic working
+  while every LPC read fails. Unplugging it brought the chip back at once (§5.6 step 8, §5.10).
+  Until then the project shows `FAN n/a`, `bc250-tune status` says why, and the fan curve is not
+  started; the fans follow the BIOS curve.
 * **Plug controller dongles into a board USB port, not a hub.** The Xbox 360 wireless receiver hung
   on every warm reboot while it sat behind a hub on the board's xHCI controller: it stalled its first
   descriptor read and stopped answering until physically unplugged, and nothing in software could

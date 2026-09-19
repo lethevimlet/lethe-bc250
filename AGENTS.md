@@ -74,8 +74,9 @@ depend on each other.
   after installing; unloading the Sleep plugin wakes a sleeping console.
 * **gamescope stats pipe.** `$XDG_RUNTIME_DIR/gamescope-stats/stats.pipe` gets an `fps=` and `focus=`
   line every 300 composited frames, and nothing while the Steam UI sits idle. Nobody else reads it.
-* **No fan sensor at all.** On some boards the Super I/O does not answer (nct6687 logs `chip ID
-  0xffff` and unloads). Every consumer must cope with "no hwmon": the HUD prints `FAN n/a`,
+* **No fan sensor at all.** The Super I/O can drop off the bus (nct6687 logs `chip ID 0xffff` and
+  unloads, the BIOS shows 65535 rpm). The one case seen was the ESP32 sense wire on TPMS1 loading an
+  LPC data line next to the 3.3 V pin; unplugging it brought the chip back. Every consumer must cope with "no hwmon": the HUD prints `FAN n/a`,
   `status --json` carries `fan.sensor` (`ok` / `no-driver` / `no-chip`), the fan daemon is not started,
   the panel and the plugin say why. Never hardcode `fan2` or a platform path; use the first
   spinning tach of whatever nct668x hwmon exists.

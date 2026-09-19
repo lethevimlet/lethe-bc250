@@ -142,7 +142,7 @@ if is_bc250; then
     todo+=("Quieter idle with 4-pin PWM fans: 'sudo bc250-tune set fan-curve on' (off by default; BIOS fan mode not Full Speed)")
     sens=$(sudo /usr/local/bin/bc250-tune status --json 2>/dev/null | grep -o '"sensor":"[a-z-]*"' | cut -d'"' -f4 || true)
     case "$sens" in
-        no-chip) todo+=("NOTE: this board's Super I/O does not answer, so there is no fan speed reading (HUD shows FAN n/a) and no fan curve / quiet fans; the BIOS curve runs the fans. README §7") ;;
+        no-chip) todo+=("NOTE: this board's Super I/O does not answer, so there is no fan speed reading (HUD shows FAN n/a) and no fan curve / quiet fans. Usual cause: the ESP32 sense wire on TPMS1 sits on, or touches, an LPC pin instead of the 3.3 V pin. README §5.10") ;;
         no-driver) todo+=("NOTE: the nct6687 fan driver is not on this image, so there is no fan speed reading and no fan curve. README §7") ;;
     esac
 else
