@@ -823,7 +823,11 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
   quiet fans all go through the NCT6686D via the `nct6687` driver. On one otherwise identical board
   (same BIOS P3.00, same image) the chip answers on no address: the driver logs `chip ID 0xffff`
   and unloads, and a raw read of its config ports and its `0xa20` sensor window returns all ones
-  even though the BIOS set up the LPC decode. Nothing in software fixes that. The project then shows
+  even though the BIOS set up the LPC decode. A side-by-side with a working board showed identical
+  firmware settings, and that the BIOS itself did not see the chip at power-on (the DSDT's `IOST`
+  Super I/O status is 0 and the keyboard-controller decode bit is left off), while the fans still
+  follow the BIOS curve: the chip runs, only its LPC link to the CPU is dead. Nothing in software
+  fixes that. The project then shows
   `FAN n/a` in the HUD and on the ESP32 page, `bc250-tune status` says why, and the fan curve is not
   started; the fans simply follow the BIOS curve. Check with `sudo modprobe nct6687; dmesg | tail`.
 * **Plug controller dongles into a board USB port, not a hub.** The Xbox 360 wireless receiver hung
