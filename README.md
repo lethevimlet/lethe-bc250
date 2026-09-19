@@ -829,7 +829,8 @@ The momentary button from §5 goes in the front panel's round hole. TODO: print 
   follow the BIOS curve: the chip runs, only its LPC link to the CPU is dead. Nothing in software
   fixes that. The project then shows
   `FAN n/a` in the HUD and on the ESP32 page, `bc250-tune status` says why, and the fan curve is not
-  started; the fans simply follow the BIOS curve. Check with `sudo modprobe nct6687; dmesg | tail`.
+  started; the fans simply follow the BIOS curve. Check with `sudo modprobe nct6687; dmesg | tail`, or without Linux at all: on such a board the BIOS
+  hardware monitor shows the fan at **65535 rpm** (`0xFFFF`, the same unanswered read).
 * **Plug controller dongles into a board USB port, not a hub.** The Xbox 360 wireless receiver hung
   on every warm reboot while it sat behind a hub on the board's xHCI controller: it stalled its first
   descriptor read and stopped answering until physically unplugged, and nothing in software could
