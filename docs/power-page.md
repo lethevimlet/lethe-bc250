@@ -71,12 +71,18 @@ stays latched. It is also only made permanent once it has proven itself:
    the page polls the new static address for you and moves there.
 3. A power loss in between boots the previous, known-good settings.
 
-**Hotspot fallback.** Whenever the ESP32 has no Wi-Fi, after three failed joins or 30 seconds, it opens
-its own WPA2 network **`BC250-AP`** (password: your OTA password) and serves the same page at
-`http://192.168.4.1`, power buttons included. So a console that moved house, or a router that changed
-its password, needs no reflash: join the hotspot, fix the Wi-Fi under Settings, or simply use the
-buttons. While the hotspot is up the ESP32 retries Wi-Fi only once a minute and not at all while a
-phone is connected to it, and it closes the hotspot a minute after Wi-Fi is back.
+**Hotspot fallback.** If the ESP32 cannot join Wi-Fi after being powered up (three failed joins or
+30 seconds), it opens its own WPA2 network **`BC250-AP`** (password: your OTA password) for five
+minutes and serves the same page at `http://192.168.4.1`, power buttons included. So a console that
+moved house, or a router that changed its password, needs no reflash: power it up, join the hotspot,
+fix the Wi-Fi under Settings, or simply use the buttons. That automatic opening happens once per
+power-up. Wi-Fi that drops later is only retried, quietly; to get the hotspot then, **hold the case
+button for ten seconds** (five minutes, at any time; this is also the way back in when the ESP32
+joined a network but cannot be reached on it), use *Open the hotspot* in Settings, or power-cycle the
+ESP32. Mind that the button hold first does what a press does: it starts the console from off, and
+forces it off after five seconds when running. While the hotspot is up the ESP32 retries Wi-Fi only
+once a minute and not at all while a phone is connected, and it closes the hotspot a minute after
+Wi-Fi is back.
 
 **The hotspot is budgeted, because it runs hot.** An access point cannot use modem sleep: the
 receiver is on all the time. Measured on the board, the chip sensor reads about 45 °C in normal Wi-Fi
@@ -84,9 +90,9 @@ mode and 61 °C within ninety seconds of hotspot. Minimum transmit power, beacon
 and a single allowed client bought one or two degrees, no more: the always-on receiver is the cost,
 and no setting keeps an active hotspot in the 40s. The same log shows the reading back at 46 °C
 within thirty seconds of closing, so what matters for the hardware is the long-run average, and that
-is what the firmware limits. An automatic opening lasts five minutes, fifteen at most while a phone
-stays attached, followed by fifty-five minutes closed: five minutes in every hour, which keeps the
-average in the 40s. One board that was left overnight with wrong Wi-Fi data, on the first firmware
+is what the firmware limits: the hotspot opens by itself only once, for five minutes after a power-up
+without Wi-Fi, otherwise only on demand for five minutes, and never longer than fifteen with a phone
+attached. One board that was left overnight with wrong Wi-Fi data, on the first firmware
 without this budget, sat in hotspot mode all night and died. On top of the budget, the driver's own
 non-stop reconnect scanning is switched off after twenty seconds without a join in favour of paced
 retries, and above 70 °C on the chip sensor the hotspot closes at once and will not open even on
@@ -98,8 +104,8 @@ Mind that the same hold first does what a press does: it starts the console from
 off after five seconds when running.
 
 As a last resort, if Wi-Fi stays down for an hour **while the console is off**, the ESP32 restarts
-itself to come back with a fresh radio, and the boot after such a restart starts with the hotspot
-resting. It never restarts while the console runs.
+itself to come back with a fresh radio; that restart does not count as a power-up, so it opens no
+hotspot. It never restarts while the console runs.
 
 | Endpoint | What |
 |----------|------|

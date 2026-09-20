@@ -79,10 +79,11 @@ depend on each other.
   console-OFF-only self-restart are the nets under that. Test network changes with the console OFF.
 * **The ESP32's hotspot is a heat source and killed a board.** No modem sleep in AP mode: +17 °C on
   the chip sensor within minutes, all night fatal. Settings cannot fix it (minimum TX power, sparse beacons and one client
-  bought 1-2 °C: the always-on receiver is the cost), only time can. Keep the budget (5 min per opening,
-  15 max with a client, 55 min rest, 70 °C cut-off, minimum TX power, no driver auto-reconnect scanning when the network
+  bought 1-2 °C: the always-on receiver is the cost), only time can. The hotspot opens by itself once per power-up
+  (5 min, only if Wi-Fi was never joined since boot) and otherwise only on demand (5 min); keep the 15 min
+  cap with a client, the 70 °C cut-off, minimum TX power, no driver auto-reconnect scanning when the network
   is absent), and never add a path that reopens the hotspot in a loop (the self-heal restart marks the
-  next boot as resting via RTC memory for that reason). `/rest/status` carries `temp`, `btn` and
+  next boot as "not a power-up" via RTC memory for that reason). `/rest/status` carries `temp`, `btn` and
   `presses` for checks without a serial cable.
 * **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
   compile because a stale `.bin` was still there.

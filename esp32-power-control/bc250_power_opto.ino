@@ -22,13 +22,14 @@
 // locked out by some routers); settings that join but cannot be reached
 // revert after two minutes.
 //
-// Hotspot fallback: after three failed joins or 30 s without Wi-Fi the
-// ESP32 opens the WPA2 network "BC250-AP" (password: the OTA
+// Hotspot fallback: after a power-up that cannot join Wi-Fi (three
+// failed joins or 30 s) the ESP32 opens the WPA2 network "BC250-AP" (password: the OTA
 // password) and serves the same page, power buttons included, at
 // 192.168.4.1. Holding the case button 10 s opens it on demand. The
-// hotspot runs hot (no modem sleep), so it is budgeted: 5 min per
-// opening, 15 min at most with a phone attached, then 55 min closed,
-// minimum transmit power, and closed at once above 70 C on the chip sensor.
+// hotspot runs hot (no modem sleep), so it opens by itself only once,
+// for 5 min after a power-up that cannot join Wi-Fi, and otherwise only
+// on demand; 15 min at most with a phone attached, minimum transmit
+// power, closed at once above 70 C on the chip sensor.
 //
 // OTA is gated on ST_OFF by design. Reflashing reboots the ESP32 and
 // the optocoupler LED goes dark before any code runs, so an update
@@ -97,9 +98,10 @@ const uint32_t AP_FORCE_MS    = 300000;   // hotspot opened on demand (button, p
 // Measured: 45 C in station mode, 61 C within 90 s of hotspot whatever the transmit power or
 // beacon rate (the always-on receiver is the cost), back to 46 C within 30 s of closing. The
 // sensor follows instantaneous power; what ages the board is the long-run average, so:
-const uint32_t AP_OPEN_MS     = 300000;   // open this long per automatic opening (5 min)...
+// The hotspot therefore opens by itself ONCE, at power-up, when Wi-Fi cannot be joined, and
+// otherwise only on demand (button held 10 s, or the page). Wi-Fi lost later is only retried.
+const uint32_t AP_OPEN_MS     = 300000;   // open this long (5 min)...
 const uint32_t AP_HARD_MS     = 900000;   // ...never longer than this, even with a phone attached
-const uint32_t AP_REST_MS     = 3300000;  // then closed this long (55 min): 5 min per hour at most
 const float    AP_MAX_TEMP_C  = 70.0;     // chip sensor; hotter than this closes the hotspot at once
 const uint16_t AP_BEACON_MS   = 400;      // sparse beacons (default 100 ms); phones still find it
 const uint32_t JOIN_GRACE_MS  = 20000;    // after this without joining, stop the driver's own
@@ -119,7 +121,8 @@ uint32_t apForceUntil  = 0;         // hotspot forced by the button, regardless 
 bool     setupFired    = false;
 bool     apUp          = false;
 uint32_t apSince       = 0;         // when the hotspot opened
-uint32_t apRestUntil   = 0;         // no automatic opening before this
+bool     bootApUsed    = false;     // the one automatic opening after power-up has been spent
+bool     everUp        = false;     // Wi-Fi has been joined at least once since boot
 uint32_t btnPresses    = 0;         // presses seen since boot, shown on the page for bench checks
 RTC_NOINIT_ATTR uint32_t healMagic; // survives ESP.restart(): "this boot follows a self-heal"
 const uint32_t HEAL_MAGIC = 0xB250A9E5;
@@ -354,10 +357,10 @@ powers down and the PSU is cut once the board is off.</p>
 <button class="save" id="netsave" type="button">Save Wi-Fi and IP</button>
 <div class="msg" id="netmsg"></div>
 <p class="hint">Applied without restarting the ESP32, so a running console is not affected. If it cannot
-join the network it keeps the previous settings. Whenever it has no Wi-Fi it opens its own hotspot
-<b>BC250-AP</b> (password: your OTA password) with this same page at 192.168.4.1, for five minutes in
-every hour so the board does not run hot (five minutes at a time); holding the case button for 10 s
-opens it on demand, and the link below opens or closes it.
+join the network it keeps the previous settings. If it cannot join Wi-Fi after being powered up, it
+opens its own hotspot <b>BC250-AP</b> (password: your OTA password) with this same page at
+192.168.4.1 for five minutes. Holding the case button for 10 s opens it for five minutes at any time,
+and so does the link below. It is kept short because hotspot mode runs the board hot.
 <a href="#" id="hotspot">Open the hotspot for 5 minutes</a> ·
 <a href="#" id="netreset">Reset Wi-Fi and IP to the firmware defaults</a></p>
 </div>
@@ -818,8 +821,8 @@ void apStop(const char *why, bool rest) {
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.setAutoReconnect(WiFi.status() == WL_CONNECTED);
   apUp = false;
-  if (rest) apRestUntil = millis() + AP_REST_MS;
-  Serial.printf("[wifi] hotspot closed: %s%s\n", why, rest ? " (resting)" : "");
+  (void)rest;
+  Serial.printf("[wifi] hotspot closed: %s\n", why);
 }
 
 void wifiTick() {
@@ -833,21 +836,22 @@ void wifiTick() {
   bool forced = apForceUntil && now < apForceUntil;
   if (apForceUntil && !forced) apForceUntil = 0;
   bool hot = temperatureRead() >= AP_MAX_TEMP_C;
-  bool resting = apRestUntil && now < apRestUntil;
-  if (apRestUntil && !resting) apRestUntil = 0;
+  if (up) everUp = true;
 
   if (!apUp) {
     if (hot) { /* no hotspot while the chip is hot, not even on demand */ }
     else if (forced) apStart("on demand");
-    else if (!resting && !up && !netPending && !netApplyAt &&
-             (staFails >= AP_AFTER_FAILS || now - wifiDownSince >= AP_AFTER_MS))
-      apStart("cannot join Wi-Fi");
+    else if (!bootApUsed && !everUp && !up && !netPending && !netApplyAt &&
+             (staFails >= AP_AFTER_FAILS || now - wifiDownSince >= AP_AFTER_MS)) {
+      bootApUsed = true;                     // once per power-up, never again by itself
+      apStart("cannot join Wi-Fi after power-up");
+    }
   } else {
     uint32_t open = now - apSince;
     int clients = WiFi.softAPgetStationNum();
     if (hot)                                                   apStop("chip too hot", true);
     else if (open >= AP_HARD_MS)                               apStop("30 min limit", true);
-    else if (!forced && clients == 0 && open >= AP_OPEN_MS)    apStop("10 min budget used", true);
+    else if (!forced && clients == 0 && open >= AP_OPEN_MS)    apStop("5 min window over", true);
     else if (up && !forced && clients == 0 && now - wifiUpSince >= 60000) apStop("back on Wi-Fi", false);
     else if (up && !forced && open >= AP_OPEN_MS)                          apStop("on-demand window over", false);
   }
@@ -876,7 +880,7 @@ void wifiTick() {
   if (!up && state == ST_OFF && !netPending && !netApplyAt &&
       now - wifiDownSince >= SELF_HEAL_MS && WiFi.softAPgetStationNum() == 0) {
     Serial.println("[wifi] down for an hour with the console OFF, restarting the ESP32");
-    healMagic = HEAL_MAGIC;                 // the next boot starts with the hotspot resting
+    healMagic = HEAL_MAGIC;                 // the next boot is not a power-up: no hotspot by itself
     delay(100);
     ESP.restart();
   }
@@ -1013,9 +1017,9 @@ void setup() {
   while (!Serial && millis() - t0 < 2000) delay(10);
   delay(200);
 
-  // A boot that follows a self-heal restart must not reopen the hotspot at once, or a box with
-  // no Wi-Fi would sit in hotspot mode around the clock after all.
-  if (healMagic == HEAL_MAGIC) apRestUntil = AP_REST_MS;
+  // A boot that follows a self-heal restart is not a power-up: it must not spend a hotspot
+  // window, or a box with no Wi-Fi would open one every hour after all.
+  if (healMagic == HEAL_MAGIC) bootApUsed = true;
   healMagic = 0;
 
   loadConsoleApi();
