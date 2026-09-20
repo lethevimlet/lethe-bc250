@@ -1,92 +1,107 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="920" height="700" viewBox="0 0 920 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schematic showing the ESP32, PC817 optocoupler and the isolation barrier between logic and PSU sides">
-  <rect data-bg="white" width="100%" height="100%" fill="#FFFFFF"/>
-  <style>
-    .w{stroke:#15171A;stroke-width:2;fill:none}
-    .box{fill:#FBFAF8;stroke:#15171A;stroke-width:2}
-    .tagbox{fill:#F2EFE9;stroke:#8A8478;stroke-width:1.5}
-    .t{font:13px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#15171A}
-    .tb{font:600 13px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#15171A}
-    .tsm{font:11.5px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#5A6068}
-    .tiso{font:600 12px "Helvetica Neue",Helvetica,Arial,sans-serif;fill:#1F6F8B}
-    .node{fill:#15171A}
-  </style>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1140 660" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="14">
+<rect width="1140" height="660" fill="#ffffff"/>
+<title>ESP32-C3 SuperMini and PC817 wiring for the BC-250 power controller</title>
+<path d="M225 154 H245 M305 154 H380" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M380 188 H366 M326 188 H236 V548 H720 V480" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M560 120 H600" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M560 154 H720 V212 M720 232 V480" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M720 212 A10 10 0 0 1 720 232" fill="none" stroke="#15181d" stroke-width="2"/>
+<path d="M560 222 H620 M680 222 H740" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M740 282 H720" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M700 480 H720" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M940 222 H970 M940 282 H970" fill="none" stroke="#15181d" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="720" cy="282" r="5" fill="#15181d"/>
+<circle cx="720" cy="480" r="5" fill="#15181d"/>
+<rect x="14" y="140" width="211" height="28" rx="6" fill="#f1eee7" stroke="#8a8377" stroke-width="1.5"/>
+<text x="119.5" y="159" text-anchor="middle" fill="#15181d">BC-250 TPMS1 pin 9 · 3.3 V</text>
+<rect x="600" y="106" width="170" height="28" rx="6" fill="#f1eee7" stroke="#8a8377" stroke-width="1.5"/>
+<text x="685.0" y="125" text-anchor="middle" fill="#15181d">ATX 9 · +5VSB</text>
+<rect x="540" y="466" width="160" height="28" rx="6" fill="#f1eee7" stroke="#8a8377" stroke-width="1.5"/>
+<text x="620.0" y="485" text-anchor="middle" fill="#15181d">ATX 15 · GND</text>
+<rect x="970" y="208" width="150" height="28" rx="6" fill="#f1eee7" stroke="#8a8377" stroke-width="1.5"/>
+<text x="1045.0" y="227" text-anchor="middle" fill="#15181d">ATX 16 · PS_ON</text>
+<rect x="970" y="268" width="150" height="28" rx="6" fill="#f1eee7" stroke="#8a8377" stroke-width="1.5"/>
+<text x="1045.0" y="287" text-anchor="middle" fill="#15181d">ATX 17 · GND</text>
+<rect x="245" y="140" width="60" height="28" rx="4" fill="#ffffff" stroke="#15181d" stroke-width="2"/>
+<text x="275" y="159" text-anchor="middle" fill="#15181d" font-size="13">R2 1k</text>
+<rect x="620" y="208" width="60" height="28" rx="4" fill="#ffffff" stroke="#15181d" stroke-width="2"/>
+<text x="650" y="227" text-anchor="middle" fill="#15181d" font-size="13">R3 220</text>
+<circle cx="366" cy="188" r="4" fill="#15181d"/><circle cx="326" cy="188" r="4" fill="#15181d"/>
+<path d="M328 178 H364 M346 178 V170 M338 170 H354" fill="none" stroke="#15181d" stroke-width="2"/>
+<text x="372" y="212" text-anchor="end" fill="#5b636e" font-size="12">SW1 · push button</text>
 
-  <rect class="box" x="200" y="60" width="200" height="240" rx="6"/>
-  <text class="tb" x="300" y="150" text-anchor="middle">ESP32-C3</text>
-  <text class="tb" x="300" y="168" text-anchor="middle">SuperMini</text>
-  <text class="tsm" x="300" y="190" text-anchor="middle">fed from +5VSB</text>
 
-  <rect class="tagbox" x="30" y="83" width="145" height="34" rx="4"/>
-  <text class="t" x="102" y="105" text-anchor="middle">ATX 9 · +5VSB</text>
-  <path class="w" d="M175 100 H200"/>
-  <text class="tsm" x="207" y="94">5V</text>
-
-  <path class="w" d="M400 110 H520"/>
-  <rect class="box" x="520" y="95" width="56" height="30" rx="3"/>
-  <text class="tsm" x="548" y="115" text-anchor="middle">R2 1k</text>
-  <path class="w" d="M576 110 H648"/>
-  <rect class="tagbox" x="648" y="93" width="222" height="34" rx="4"/>
-  <text class="t" x="759" y="115" text-anchor="middle">BC-250 TPMS1 pin 9 · 3.3 V</text>
-  <text class="tsm" x="393" y="102" text-anchor="end">GPIO 6</text>
-
-  <path class="w" d="M400 180 H452"/>
-  <text class="tsm" x="393" y="172" text-anchor="end">GPIO 7</text>
-  <path class="w" d="M452 180 h10 M488 180 h42"/>
-  <circle cx="465" cy="180" r="3.5" class="node"/>
-  <circle cx="485" cy="180" r="3.5" class="node"/>
-  <path class="w" d="M459 168 L495 158"/>
-  <text class="tsm" x="470" y="150">SW1</text>
-  <path class="w" d="M530 180 V400"/>
-
-  <path class="w" d="M400 250 H700"/>
-  <text class="tsm" x="393" y="242" text-anchor="end">GPIO 4</text>
-  <path class="w" d="M700 250 V312"/>
-  <rect class="box" x="672" y="312" width="56" height="30" rx="3"/>
-  <text class="tsm" x="700" y="332" text-anchor="middle">R3 220</text>
-  <path class="w" d="M700 342 V430"/>
-
-  <path class="w" d="M190 400 H540"/>
-  <path class="w" d="M300 300 V400"/>
-  <circle cx="300" cy="400" r="4.5" class="node"/>
-  <circle cx="530" cy="400" r="4.5" class="node"/>
-  <text class="tsm" x="308" y="393">GND</text>
-  <rect class="tagbox" x="30" y="383" width="160" height="34" rx="4"/>
-  <text class="t" x="110" y="405" text-anchor="middle">ATX 15 · GND</text>
-  <text class="tsm" x="345" y="424">logic ground — star node</text>
-
-  <path class="w" d="M540 430 V400"/>
-
-  <path d="M20 500 H900" stroke="#1F6F8B" stroke-width="2" stroke-dasharray="9 7" fill="none"/>
-  <text class="tiso" x="20" y="492">isolation barrier — no shared ground</text>
-
-  <rect x="466" y="430" width="270" height="150" rx="6" fill="#FBFAF8" stroke="#1F6F8B" stroke-width="2"/>
-  <text class="tb" x="601" y="452" text-anchor="middle">PC817</text>
-
-  <path class="w" d="M700 430 V470 M540 430 V470"/>
-  <path class="w" d="M540 470 H700"/>
-  <path d="M636 458 L636 482 L612 470 Z" fill="#15171A"/>
-  <path class="w" d="M610 456 V484"/>
-  <path d="M648 478 l14 10 M648 488 l14 10" stroke="#1F6F8B" stroke-width="1.6" fill="none"/>
-  <path d="M660 486 l3 4 -5 1 z M660 496 l3 4 -5 1 z" fill="#1F6F8B"/>
-
-  <path class="w" d="M540 580 V545 M700 580 V545"/>
-  <path class="w" d="M540 545 H596 M700 545 H664"/>
-  <circle cx="630" cy="545" r="21" fill="none" stroke="#15171A" stroke-width="1.6"/>
-  <path class="w" d="M622 532 V558"/>
-  <path class="w" d="M622 539 L640 530 M622 551 L640 560"/>
-  <path d="M634 555 l8 5 -9 2 z" fill="#15171A"/>
-
-  <text class="tsm" x="700" y="424" text-anchor="middle">1 · anode</text>
-  <text class="tsm" x="540" y="424" text-anchor="middle">2 · cathode</text>
-  <text class="tsm" x="540" y="600" text-anchor="middle">4 · collector</text>
-  <text class="tsm" x="700" y="600" text-anchor="middle">3 · emitter</text>
-
-  <path class="w" d="M540 580 V640 H500"/>
-  <rect class="tagbox" x="320" y="623" width="180" height="34" rx="4"/>
-  <text class="t" x="410" y="645" text-anchor="middle">ATX 16 · PS_ON</text>
-
-  <path class="w" d="M700 580 V640 H744"/>
-  <rect class="tagbox" x="744" y="623" width="150" height="34" rx="4"/>
-  <text class="t" x="819" y="645" text-anchor="middle">ATX 17 · GND</text>
+<rect x="380" y="70" width="180" height="320" rx="10" fill="#1f2937" stroke="#15181d" stroke-width="2"/>
+<rect x="435" y="50" width="70" height="44" rx="9" fill="#c9ccd1" stroke="#15181d" stroke-width="2"/>
+<text x="470" y="77" text-anchor="middle" fill="#15181d" font-size="11">USB-C</text>
+<rect x="440" y="102" width="20" height="14" rx="3" fill="#e5e7eb"/><rect x="480" y="102" width="20" height="14" rx="3" fill="#e5e7eb"/>
+<text x="450" y="128" text-anchor="middle" fill="#9ca3af" font-size="9">BOOT</text><text x="490" y="128" text-anchor="middle" fill="#9ca3af" font-size="9">RST</text>
+<rect x="438" y="206" width="64" height="64" rx="4" fill="#111827" stroke="#4b5563" transform="rotate(45 470 238)"/>
+<text x="470" y="235" text-anchor="middle" fill="#e5e7eb" font-size="11" font-weight="600">ESP32-C3</text><text x="470" y="250" text-anchor="middle" fill="#9ca3af" font-size="10">SuperMini</text>
+<rect x="448" y="362" width="44" height="14" rx="2" fill="#b91c1c"/><text x="470" y="356" text-anchor="middle" fill="#9ca3af" font-size="9">antenna</text>
+<circle cx="394" cy="120" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="394" cy="120" r="3" fill="#1f2937"/>
+<text x="410" y="125" text-anchor="start" fill="#9ca3af" font-size="13" font-weight="400">5</text>
+<circle cx="546" cy="120" r="8" fill="#c2410c" stroke="#111" stroke-width="1"/><circle cx="546" cy="120" r="3" fill="#1f2937"/>
+<text x="530" y="125" text-anchor="end" fill="#ffffff" font-size="13" font-weight="700">5V</text>
+<circle cx="394" cy="154" r="8" fill="#c2410c" stroke="#111" stroke-width="1"/><circle cx="394" cy="154" r="3" fill="#1f2937"/>
+<text x="410" y="159" text-anchor="start" fill="#ffffff" font-size="13" font-weight="700">6</text>
+<circle cx="546" cy="154" r="8" fill="#c2410c" stroke="#111" stroke-width="1"/><circle cx="546" cy="154" r="3" fill="#1f2937"/>
+<text x="530" y="159" text-anchor="end" fill="#ffffff" font-size="13" font-weight="700">G</text>
+<circle cx="394" cy="188" r="8" fill="#c2410c" stroke="#111" stroke-width="1"/><circle cx="394" cy="188" r="3" fill="#1f2937"/>
+<text x="410" y="193" text-anchor="start" fill="#ffffff" font-size="13" font-weight="700">7</text>
+<circle cx="546" cy="188" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="546" cy="188" r="3" fill="#1f2937"/>
+<text x="530" y="193" text-anchor="end" fill="#9ca3af" font-size="13" font-weight="400">3.3</text>
+<circle cx="394" cy="222" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="394" cy="222" r="3" fill="#1f2937"/>
+<text x="410" y="227" text-anchor="start" fill="#9ca3af" font-size="13" font-weight="400">8</text>
+<circle cx="546" cy="222" r="8" fill="#c2410c" stroke="#111" stroke-width="1"/><circle cx="546" cy="222" r="3" fill="#1f2937"/>
+<text x="530" y="227" text-anchor="end" fill="#ffffff" font-size="13" font-weight="700">4</text>
+<circle cx="394" cy="256" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="394" cy="256" r="3" fill="#1f2937"/>
+<text x="410" y="261" text-anchor="start" fill="#9ca3af" font-size="13" font-weight="400">9</text>
+<circle cx="546" cy="256" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="546" cy="256" r="3" fill="#1f2937"/>
+<text x="530" y="261" text-anchor="end" fill="#9ca3af" font-size="13" font-weight="400">3</text>
+<circle cx="394" cy="290" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="394" cy="290" r="3" fill="#1f2937"/>
+<text x="410" y="295" text-anchor="start" fill="#9ca3af" font-size="13" font-weight="400">10</text>
+<circle cx="546" cy="290" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="546" cy="290" r="3" fill="#1f2937"/>
+<text x="530" y="295" text-anchor="end" fill="#9ca3af" font-size="13" font-weight="400">2</text>
+<circle cx="394" cy="324" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="394" cy="324" r="3" fill="#1f2937"/>
+<text x="410" y="329" text-anchor="start" fill="#9ca3af" font-size="13" font-weight="400">20</text>
+<circle cx="546" cy="324" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="546" cy="324" r="3" fill="#1f2937"/>
+<text x="530" y="329" text-anchor="end" fill="#9ca3af" font-size="13" font-weight="400">1</text>
+<circle cx="394" cy="358" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="394" cy="358" r="3" fill="#1f2937"/>
+<text x="410" y="363" text-anchor="start" fill="#9ca3af" font-size="13" font-weight="400">21</text>
+<circle cx="546" cy="358" r="8" fill="#d4a72c" stroke="#111" stroke-width="1"/><circle cx="546" cy="358" r="3" fill="#1f2937"/>
+<text x="530" y="363" text-anchor="end" fill="#9ca3af" font-size="13" font-weight="400">0</text>
+<text x="470" y="412" text-anchor="middle" fill="#15181d" font-size="13" font-weight="600">ESP32-C3 SuperMini</text>
+<text x="470" y="430" text-anchor="middle" fill="#5b636e" font-size="12">component side, USB-C up</text>
+<text x="568" y="110" text-anchor="start" fill="#5b636e" font-size="12">5V</text>
+<text x="568" y="172" text-anchor="start" fill="#5b636e" font-size="12">GND</text>
+<text x="568" y="242" text-anchor="start" fill="#5b636e" font-size="12">GPIO 4</text>
+<rect x="740" y="215" width="20" height="14" fill="#c9ccd1" stroke="#15181d" stroke-width="1.5"/>
+<rect x="740" y="275" width="20" height="14" fill="#c9ccd1" stroke="#15181d" stroke-width="1.5"/>
+<rect x="920" y="215" width="20" height="14" fill="#c9ccd1" stroke="#15181d" stroke-width="1.5"/>
+<rect x="920" y="275" width="20" height="14" fill="#c9ccd1" stroke="#15181d" stroke-width="1.5"/>
+<rect x="760" y="186" width="160" height="132" rx="6" fill="#111827" stroke="#15181d" stroke-width="2"/>
+<circle cx="778" cy="204" r="6" fill="#e5e7eb"/>
+<text x="840" y="208" text-anchor="middle" fill="#e5e7eb" font-size="13" font-weight="700">PC817</text>
+<path d="M760 222 H800 V238 M800 266 V282 H760" fill="none" stroke="#e5e7eb" stroke-width="2"/>
+<path d="M786 238 H814 L800 262 Z" fill="#e5e7eb"/><path d="M786 264 H814" stroke="#e5e7eb" stroke-width="2"/>
+<path d="M822 244 L842 250 M822 256 L842 262" stroke="#38bdf8" stroke-width="2"/><path d="M842 250 l-7 -5 l2 7 Z M842 262 l-7 -5 l2 7 Z" fill="#38bdf8"/>
+<path d="M866 236 V268" stroke="#e5e7eb" stroke-width="4"/>
+<path d="M866 246 L892 228 V222 H920 M866 258 L892 276 V282 H920" fill="none" stroke="#e5e7eb" stroke-width="2"/>
+<path d="M892 276 l-9 -1 l5 -7 Z" fill="#e5e7eb"/>
+<text x="762" y="176" text-anchor="start" fill="#5b636e" font-size="12">1 anode +</text>
+<text x="762" y="338" text-anchor="start" fill="#5b636e" font-size="12">2 cathode −</text>
+<text x="918" y="176" text-anchor="end" fill="#5b636e" font-size="12">4 collector</text>
+<text x="918" y="338" text-anchor="end" fill="#5b636e" font-size="12">3 emitter</text>
+<text x="840" y="360" text-anchor="middle" fill="#5b636e" font-size="12">top view · the dot marks pin 1</text>
+<path d="M840 84 V160 M840 372 V600" stroke="#1a6e8a" stroke-width="2" stroke-dasharray="8 6"/>
+<path d="M840 190 V314" stroke="#1a6e8a" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="830" y="56" text-anchor="end" fill="#1a6e8a" font-size="13" font-weight="600">logic side · ESP32 ground</text>
+<text x="850" y="56" fill="#1a6e8a" font-size="13" font-weight="600">PSU side · PS_ON switch</text>
+<text x="840" y="76" text-anchor="middle" fill="#1a6e8a" font-size="12">isolation barrier: only light crosses</text>
+<text x="596" y="512" text-anchor="middle" fill="#5b636e" font-size="12">logic ground · star node:</text>
+<text x="596" y="528" text-anchor="middle" fill="#5b636e" font-size="12">ESP32 G, button return, PC817 pin 2</text>
+<text x="14" y="606" text-anchor="start" fill="#5b636e" font-size="12">Pad names are the ones printed on the board. They are printed on the underside, where the two columns appear mirrored: with the</text>
+<text x="14" y="624" text-anchor="start" fill="#5b636e" font-size="12">components facing you and USB-C up, 5V · G · 3.3 · 4 · 3 · 2 · 1 · 0 run down the right edge and 5 · 6 · 7 · 8 · 9 · 10 · 20 · 21 down the left.</text>
+<text x="14" y="642" text-anchor="start" fill="#5b636e" font-size="12">Lines that cross with a hop are not connected; a dot is a joint.</text>
 </svg>

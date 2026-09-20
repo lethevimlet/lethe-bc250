@@ -15,6 +15,7 @@ depend on each other.
 | `esp32-power-control/` | ESP32-C3 sketch (`bc250_power_opto.ino`, the web page is a raw string inside it) and `flash.sh` | the ESP32; `flash.sh` on a laptop |
 | `install.sh` | the `curl \| bash` guided installer | console or laptop |
 | `images/esp32-gui.png` | screenshot of the ESP32 page, embedded in the README | |
+| `images/schematic-esp32-pc817.svg` | wiring drawing: the SuperMini from the component side with its real pad order, the PC817 as the real package. Keep it matching §5.3 | |
 | `.env/` (gitignored) | local notes: console address, ssh user, test log; **never commit** | |
 
 ## Rules of thumb
@@ -82,6 +83,11 @@ depend on each other.
   spinning tach of whatever nct668x hwmon exists.
 * **BIOS fan mode.** In *Full Speed* the EC ignores every PWM write; nothing in software can tell
   except that the rpm never moves. Fans that never see the PWM wire behave the same.
+* **`curl | bash` reads the script from stdin.** bash executes a piped script command by command, so
+  taking the keyboard from `/dev/tty` at top level leaves it waiting for the rest of the script to be
+  typed, and the installer prints nothing. `install.sh` therefore runs everything inside `main()`,
+  called on one final line with `exit`. Test the real path, a file run does not exercise it:
+  `script -qec 'cat install.sh | bash -s -- --help' /dev/null`.
 * **Sudo over ssh in tests.** sudo's no-tty timestamp is keyed by the parent pid, so a piped
   `curl | bash` cannot reuse a credential cached in the ssh shell; source the script instead, or use
   a real terminal.

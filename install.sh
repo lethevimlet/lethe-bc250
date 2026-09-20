@@ -15,6 +15,17 @@
 #                             --dir PATH (checkout location, default ~/lethe-bc250)  --no-update
 set -euo pipefail
 
+usage() { cat <<'EOT'
+lethe-bc250 guided installer
+  curl -fsSL https://raw.githubusercontent.com/lethevimlet/lethe-bc250/main/install.sh | bash
+  ./install.sh [--all | --only tune,decky,tune-plugin,sleep-plugin,api,esp32] [--dir PATH] [--no-update]
+On a BC-250: bc250-tune + boot services, Decky Loader, the Tune and Sleep plugins, bc250-api.
+On any other machine: the ESP32 firmware build/flash helper.
+EOT
+}
+
+
+main() {
 REPO_URL=https://github.com/lethevimlet/lethe-bc250.git
 DIR=${LETHE_BC250_DIR:-$HOME/lethe-bc250}
 SELECT=""; MODE=menu; UPDATE=1
@@ -25,14 +36,18 @@ while [ $# -gt 0 ]; do
         --only) MODE=only; SELECT=${2:-}; shift ;;
         --dir) DIR=${2:?}; shift ;;
         --no-update) UPDATE=0 ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
 done
 
 # When piped into bash, stdin is the script: take the keyboard from the terminal instead.
-if [ ! -t 0 ] && { exec 3</dev/tty; } 2>/dev/null; then exec <&3; fi   # keyboard from the terminal when piped
+# Piped into bash (curl | bash), stdin is the script itself. bash reads a piped script command by
+# command, so swapping stdin at top level would make it wait for the REST OF THE SCRIPT on the
+# keyboard and print nothing. Everything therefore runs inside main(), which bash has parsed in
+# full before the first command executes; only then is it safe to take the keyboard from the tty.
+if [ ! -t 0 ] && { exec 3</dev/tty; } 2>/dev/null; then exec <&3; fi
 
 c_bold=$'\e[1m'; c_dim=$'\e[2m'; c_ok=$'\e[32m'; c_warn=$'\e[33m'; c_err=$'\e[31m'; c_off=$'\e[0m'
 say()  { printf '%s==> %s%s\n' "$c_bold" "$*" "$c_off"; }
@@ -150,3 +165,7 @@ else
 fi
 for t in "${todo[@]}"; do echo "  • $t"; done
 [ ${#failed[@]} -eq 0 ] || { echo; warn "Failed steps: ${failed[*]}. Fix the cause and re-run; finished steps are skipped or refreshed harmlessly."; exit 1; }
+}
+
+# one line on purpose: after main() returns, bash must not try to read more script from the tty
+main "$@"; exit $?

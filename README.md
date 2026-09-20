@@ -469,7 +469,7 @@ instead of running continuously.
 Firmware: [`esp32-power-control/bc250_power_opto.ino`](esp32-power-control/bc250_power_opto.ino).
 
 <p align="center">
-  <img src="images/schematic-esp32-pc817.svg" alt="Schematic: ESP32-C3 fed from +5VSB, GPIO 4 through R3 to the PC817 LED, PC817 phototransistor between ATX PS_ON and GND, GPIO 6 sensing TPMS1 pin 9 through R2, button on GPIO 7" width="720">
+  <img src="images/schematic-esp32-pc817.svg" alt="Wiring: ESP32-C3 SuperMini drawn from the component side with USB-C up (left pads 5, 6, 7, 8, 9, 10, 20, 21; right pads 5V, G, 3.3, 4, 3, 2, 1, 0). 5V from ATX pin 9, G to the logic ground star node and ATX pin 15, pad 6 through R2 1k to TPMS1 pin 9, pad 7 through the push button to the star node, pad 4 through R3 220 to PC817 pin 1. The PC817 is drawn as the real four-pin package seen from the top, dot at pin 1: 1 anode, 2 cathode to the star node, 4 collector to ATX pin 16 PS_ON, 3 emitter to ATX pin 17 ground, with the isolation barrier through its middle" width="720">
 </p>
 
 ### 5.1 How it works
@@ -550,6 +550,14 @@ The logic ground node is a star: the ESP32 GND pad, the button return and PC817 
 joint, and a single wire runs from that joint to ATX pin 15. The power cable to the BC-250 is not
 touched.
 
+**Finding the pads on the SuperMini.** Hold the board with the components facing you and the USB-C
+connector up. The right edge then reads, top to bottom, `5V`, `G`, `3.3`, `4`, `3`, `2`, `1`, `0`,
+and the left edge `5`, `6`, `7`, `8`, `9`, `10`, `20`, `21`. So power (`5V`) and ground (`G`) are the
+two pads nearest the USB connector on the right, `4` is the fourth pad down on the right, and `6`
+and `7` are the second and third down on the left. The pad names are printed on the underside,
+where the two columns appear mirrored; go by the printed name next to the pad, not by position
+alone. The schematic above shows the board from the component side.
+
 In the schematic, GPIO 4 high lights the LED, the phototransistor conducts, PS_ON is pulled to ground
 and the PSU starts. Nothing crosses the dashed isolation barrier except light. Pins 15 and 17 are both ground and join
 inside the PSU; run two wires so they join there, through the supply's own heavy conductors, and not
@@ -558,7 +566,10 @@ through your thin wires. Bridging PC817 pin 2 to pin 3 works electrically and th
 ### 5.4 Identifying the PC817
 
 The dot marks pin 1. Pin 2 sits below it on the same side; pin 3 faces pin 2 across the body, and
-pin 4 faces pin 1. Confirm with a meter in diode mode before soldering:
+pin 4 faces pin 1. The schematic draws the part that way, as the package seen from the top: LED on
+the dot side (1 anode, 2 cathode), phototransistor on the other (4 collector, 3 emitter). The
+collector goes to PS_ON and the emitter to ground; diagrams that draw the transistor *symbol* rather
+than the package put the emitter at the bottom, which is the same pin 3. Confirm with a meter in diode mode before soldering:
 
 * One pair reads roughly 1000–1200 mV one way and open the other. That pair is the LED; the pin where
   the red probe sits for the conducting direction is pin 1.
