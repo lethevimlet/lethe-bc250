@@ -27,7 +27,7 @@ set -uo pipefail
 unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-VERSION="1.4.2"
+VERSION="1.4.3"
 CONF_DIR=/etc/bc250-tune
 CONF="$CONF_DIR/config"
 STATE_DIR=/run/bc250-tune
@@ -337,7 +337,7 @@ fan_sensor_text() {
     case "$1" in
         ok) echo "ok" ;;
         no-driver) echo "no fan sensor: the nct6687 driver is not installed on this image" ;;
-        *) echo "no fan sensor: the board's Super I/O does not answer (nct6687 finds no chip). Usual cause: an ESP32 sense wire on the TPMS1 header that sits on, or touches, an LPC pin instead of the 3.3 V pin (README 5.10). Fan speed, fan curve and quiet fans are unavailable until then; the BIOS curve runs the fans" ;;
+        *) echo "no fan sensor: the board's Super I/O does not answer (nct6687 finds no chip). Usual cause: an ESP32 sense wire on the TPMS1 header that sits on, or touches, an LPC pin instead of the 3.3 V pin (https://lethevimlet.github.io/lethe-bc250/power-page.html). Fan speed, fan curve and quiet fans are unavailable until then; the BIOS curve runs the fans" ;;
     esac
 }
 fan_read() {   # sets FAN_RPM FAN_DUTY FAN_MODE (auto|manual|none)

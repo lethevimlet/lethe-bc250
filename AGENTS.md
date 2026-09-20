@@ -1,7 +1,8 @@
 # Working on lethe-bc250
 
-Notes for an agent (or a human) starting a session in this repo. The README is the source of truth
-for what the project does; this file is about how to change it without breaking the pieces that
+Notes for an agent (or a human) starting a session in this repo. The documentation site (`docs/`,
+published at https://lethevimlet.github.io/lethe-bc250/) is the source of truth for what the project
+does, and the README is its short front door; this file is about how to change it without breaking the pieces that
 depend on each other.
 
 ## What lives where
@@ -14,8 +15,9 @@ depend on each other.
 | `bc250-api/` | REST service (Python stdlib) on port 8250: stats, fps from gamescope's stats pipe, tune switches, sleep/wake, poweroff; `panel.js` = the console part of the ESP32 page, served at `/panel.js` | the console |
 | `esp32-power-control/` | ESP32-C3 sketch (`bc250_power_opto.ino`, the web page is a raw string inside it) and `flash.sh` | the ESP32; `flash.sh` on a laptop |
 | `install.sh` | the `curl \| bash` guided installer | console or laptop |
-| `images/esp32-gui.png` | screenshot of the ESP32 page, embedded in the README | |
-| `images/schematic-esp32-pc817.svg` | wiring drawing: the SuperMini from the component side with its real pad order, the PC817 as the real package. Keep it matching §5.3 | |
+| `docs/` | the documentation site (GitHub Pages, Jekyll + just-the-docs, built from this folder): one page per topic, images in `docs/images/` | |
+| `docs/images/esp32-gui.png` | screenshot of the ESP32 page, used by the README and the docs | |
+| `docs/images/schematic-esp32-pc817.svg` | wiring drawing: the SuperMini from the component side with its real pad order, the PC817 as the real package. Keep it matching the connections table in `docs/power-wiring.md` | |
 | `.env/` (gitignored) | local notes: console address, ssh user, test log; **never commit** | |
 
 ## Rules of thumb
@@ -24,14 +26,15 @@ depend on each other.
   `load_conf`, `write_conf`, `validate_conf`, `cmd_set` keys, `cmd_apply`, the JSON and text status,
   the whiptail menu, `VERSION`), the Decky plugin (`index.tsx`, then rebuild `dist/index.js`), the
   console panel (`OPTS` and `cur()` in `bc250-api/panel.js`, bump its `VERSION`), `bc250-api`
-  (`TUNE_KEYS` and `VALUE_OK`), and the docs (the switch tables in `README.md` and
+  (`TUNE_KEYS` and `VALUE_OK`), and the docs (the switch tables in `docs/tuning.md` and
   `decky-bc250-tune/README.md`). Then the screenshot. None of this needs an ESP32 reflash.
 * **The ESP32 sketch is for the ESP32's own things.** State row, the four buttons, the address
   editor, the offline notice, and the loader that pulls `panel.js` from the console. The contract
   between them (`bc250Panel.mount/update/busy`, documented in `bc250-api/README.md`) is what makes
   reflashes rare; do not put console-side UI back into the sketch.
-* **Docs and installer move with the code.** Any new service, script, option or install step gets its
-  README paragraph, its row in the tables, a line in `install.sh` if it changes what is installed,
+* **Docs and installer move with the code.** Detail goes in `docs/`, not in the README: the README
+  stays a short overview that links into the site. Any new service, script, option or install step gets
+  its paragraph on the right docs page, its row in the tables, a line in `install.sh` if it changes what is installed,
   and a mention in the installer's closing hand-off list if a human has to do something.
 * **Validate before writing.** `bc250-tune set` validates the whole config before `write_conf`; a bad
   value that reaches the file makes every later `apply` (including the boot-time one) die at that
@@ -51,6 +54,10 @@ depend on each other.
   placeholders (`YOUR_SSID`, `YOUR_PASSWORD`, `CHANGE_ME`, `http://YOUR_CONSOLE_IP:8250`). Real values
   go into `esp32-power-control/config.local` (gitignored) and `flash.sh` substitutes them in a build
   copy. Before every commit: `git diff --cached | grep -i` for the local values; the count must be 0.
+* **The docs site must still build.** Pages use kramdown, not GitHub's renderer: titles with a colon
+  are quoted in the front matter, callouts are `{: .warning }` above a blockquote (not `> [!WARNING]`),
+  links between pages are relative `page.md#anchor`. Build it locally before pushing:
+  `docker run --rm -e INPUT_SOURCE=docs -e INPUT_DESTINATION=_site -e GITHUB_WORKSPACE=/github/workspace -w /github/workspace -v "$PWD":/github/workspace ghcr.io/actions/jekyll-build-pages:v1.0.13`.
 * **Addresses in docs are generic.** `<console-ip>`, `<esp32-ip>`, `http://YOUR_CONSOLE_IP:8250`.
   Prefer the reserved IP over `bc250.local` in prose; mDNS is a bonus many networks lack.
 

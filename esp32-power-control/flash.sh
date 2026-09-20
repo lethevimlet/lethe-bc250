@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build and flash the BC-250 ESP32 power controller firmware, from a laptop or desktop (Linux or
 # macOS). Not from the console: OTA only arms while the console is off, and USB flashing with the
-# +5VSB wire connected back-feeds the PSU (README §5.7).
+# +5VSB wire connected back-feeds the PSU (https://lethevimlet.github.io/lethe-bc250/power-firmware.html).
 #
 #   ./flash.sh            interactive: build, then pick USB upload / OTA update / nothing
 #   ./flash.sh build      build only
@@ -117,7 +117,7 @@ ports() {
 }
 usb() {
     local port=${1:-}
-    warn "USB flashing: the ESP32 must NOT be wired to the PSU's +5VSB while on USB (README §5.7). Power it from the USB cable only."
+    warn "USB flashing: the ESP32 must NOT be wired to the PSU's +5VSB while on USB (docs: Firmware, flashing and OTA). Power it from the USB cable only."
     if [ -z "$port" ]; then
         local list; list=$(ports)
         [ -n "$list" ] || die "no serial port found. Plug the ESP32-C3 in over USB (hold BOOT while plugging if it does not show up)"

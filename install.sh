@@ -150,15 +150,15 @@ fi
 echo
 say "Done. Still to do by hand:"
 if is_bc250; then
-    todo+=("BIOS: IOMMU disabled, fan mode Default or Customize (not Full Speed), AUTO_PWRON1 jumper (README §3.1)")
+    todo+=("BIOS: IOMMU disabled, fan mode Default or Customize (not Full Speed), AUTO_PWRON1 jumper (https://lethevimlet.github.io/lethe-bc250/os.html)")
     todo+=("Gaming Mode: Performance Overlay level 1 for the HUD line; Quick Access → Decky for the plugins")
     todo+=("The ESP32 firmware is built and flashed from another PC: run this same installer there")
     todo+=("Config lives in /etc/bc250-tune/config; 'sudo bc250-tune menu' or the Decky plugin to change it")
     todo+=("Quieter idle with 4-pin PWM fans: 'sudo bc250-tune set fan-curve on' (off by default; BIOS fan mode not Full Speed)")
     sens=$(sudo /usr/local/bin/bc250-tune status --json 2>/dev/null | grep -o '"sensor":"[a-z-]*"' | cut -d'"' -f4 || true)
     case "$sens" in
-        no-chip) todo+=("NOTE: this board's Super I/O does not answer, so there is no fan speed reading (HUD shows FAN n/a) and no fan curve / quiet fans. Usual cause: the ESP32 sense wire on TPMS1 sits on, or touches, an LPC pin instead of the 3.3 V pin. README §5.10") ;;
-        no-driver) todo+=("NOTE: the nct6687 fan driver is not on this image, so there is no fan speed reading and no fan curve. README §7") ;;
+        no-chip) todo+=("NOTE: this board's Super I/O does not answer, so there is no fan speed reading (HUD shows FAN n/a) and no fan curve / quiet fans. Usual cause: the ESP32 sense wire on TPMS1 sits on, or touches, an LPC pin instead of the 3.3 V pin. https://lethevimlet.github.io/lethe-bc250/power-page.html") ;;
+        no-driver) todo+=("NOTE: the nct6687 fan driver is not on this image, so there is no fan speed reading and no fan curve. https://lethevimlet.github.io/lethe-bc250/lessons.html") ;;
     esac
 else
     todo+=("On the console, run the installer again for bc250-tune, the plugins and bc250-api")
