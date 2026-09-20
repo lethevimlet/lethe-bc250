@@ -72,7 +72,7 @@ stays latched. It is also only made permanent once it has proven itself:
 3. A power loss in between boots the previous, known-good settings.
 
 **Hotspot fallback.** Whenever the ESP32 has no Wi-Fi, after three failed joins or 30 seconds, it opens
-its own WPA2 network **`bc250-setup`** (password: your OTA password) and serves the same page at
+its own WPA2 network **`BC250-AP`** (password: your OTA password) and serves the same page at
 `http://192.168.4.1`, power buttons included. So a console that moved house, or a router that changed
 its password, needs no reflash: join the hotspot, fix the Wi-Fi under Settings, or simply use the
 buttons. While the hotspot is up the ESP32 retries Wi-Fi only once a minute and not at all while a

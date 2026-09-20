@@ -23,7 +23,7 @@
 // revert after two minutes.
 //
 // Hotspot fallback: after three failed joins or 30 s without Wi-Fi the
-// ESP32 opens the WPA2 network "bc250-setup" (password: the OTA
+// ESP32 opens the WPA2 network "BC250-AP" (password: the OTA
 // password) and serves the same page, power buttons included, at
 // 192.168.4.1. Holding the case button 10 s opens it on demand.
 //
@@ -91,7 +91,7 @@ const uint32_t SETUP_PRESS    = 10000;    // hold the button this long to open t
 const uint32_t SELF_HEAL_MS   = 600000;   // Wi-Fi down this long with the console OFF -> restart the
                                           //   ESP32. Never while the console runs: a restart drops
                                           //   GPIO 4 and would hard-cut it.
-const char    *AP_SSID        = "bc250-setup";
+const char    *AP_SSID        = "BC250-AP";
 volatile uint8_t staFails = 0;      // disconnect events since the last apply
 volatile uint8_t staReason = 0;
 bool     netJoined     = false;     // the pending settings got onto the network at least once
@@ -333,7 +333,7 @@ powers down and the PSU is cut once the board is off.</p>
 <div class="msg" id="netmsg"></div>
 <p class="hint">Applied without restarting the ESP32, so a running console is not affected. If it cannot
 join the network it keeps the previous settings. Whenever it has no Wi-Fi it opens its own hotspot
-<b>bc250-setup</b> (password: your OTA password) with this same page at 192.168.4.1, and holding the
+<b>BC250-AP</b> (password: your OTA password) with this same page at 192.168.4.1, and holding the
 case button for 10 s opens that hotspot on demand.
 <a href="#" id="hotspot">Open the hotspot now for 10 minutes</a> ·
 <a href="#" id="netreset">Reset Wi-Fi and IP to the firmware defaults</a></p>
@@ -376,7 +376,7 @@ async function poll(){
   const viaAp=location.hostname=='192.168.4.1';
   $('apb').className='apb'+(d.ap?' show':'');
   if(d.ap)$('apb').innerHTML=viaAp?('You are on the ESP32\'s own hotspot'+(d.wifi?'.':', because it cannot join <b>'+esc(d.ssid||'Wi-Fi')+'</b>.')+
-   ' Set the Wi-Fi under Settings below, or simply use the buttons.'):'The hotspot <b>bc250-setup</b> is open.';
+   ' Set the Wi-Fi under Settings below, or simply use the buttons.'):'The hotspot <b>BC250-AP</b> is open.';
   if(viaAp&&!apOpened){apOpened=true;$('set').open=true;loadNet()}
   if(!$('set').open)$('setsum').textContent=(d.ssid||'')+(d.wifi===false?' · not connected':'')+(d.ap?' · hotspot on':'')+(d.net_pending?' · trying new settings':'');
   setRunning(d.state=='RUNNING');
