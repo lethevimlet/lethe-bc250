@@ -28,6 +28,12 @@ nav_order: 10
   while every LPC read fails. Unplugging it brought the chip back at once ([Build order](power-wiring.md#build-order) step 8, [If something misbehaves](power-page.md#if-something-misbehaves)).
   Until then the project shows `FAN n/a`, `bc250-tune status` says why, and the fan curve is not
   started; the fans follow the BIOS curve.
+* **Hotspot mode cooks a SuperMini if it lasts.** The first firmware with the Wi-Fi hotspot fallback
+  had no time limit. A board left overnight with wrong Wi-Fi data stayed in hotspot mode all night and
+  was dead in the morning: power LED on, no USB enumeration even in ROM bootloader mode. Measured
+  afterwards on its replacement: 47 °C on the chip sensor in normal Wi-Fi mode, 64 °C within three
+  minutes of hotspot, regulator hotter still, inside a closed case on the standby rail. The hotspot is
+  now budgeted to ten minutes per hour with a thermal cut-off ([Settings](power-page.md#settings-wi-fi-ip-address-console-address)).
 * **Plug controller dongles into a board USB port, not a hub.** The Xbox 360 wireless receiver hung
   on every warm reboot while it sat behind a hub on the board's xHCI controller: it stalled its first
   descriptor read and stopped answering until physically unplugged, and nothing in software could

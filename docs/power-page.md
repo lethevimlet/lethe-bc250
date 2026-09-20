@@ -76,14 +76,25 @@ its own WPA2 network **`BC250-AP`** (password: your OTA password) and serves the
 `http://192.168.4.1`, power buttons included. So a console that moved house, or a router that changed
 its password, needs no reflash: join the hotspot, fix the Wi-Fi under Settings, or simply use the
 buttons. While the hotspot is up the ESP32 retries Wi-Fi only once a minute and not at all while a
-phone is connected to it, and it closes the hotspot a minute after Wi-Fi is back. *Open the hotspot
+phone is connected to it, and it closes the hotspot a minute after Wi-Fi is back.
+
+**The hotspot is budgeted, because it runs hot.** An access point cannot use modem sleep: the
+receiver is on all the time. Measured on the board, the chip sensor reads about 47 °C in normal Wi-Fi
+mode and 64 °C after three minutes of hotspot, at the reduced transmit power, and the small regulator
+next to it runs hotter than that. One board that was left overnight with wrong Wi-Fi data, and so in
+hotspot mode the whole night, died. So an automatic opening lasts ten minutes, thirty at most while a
+phone stays attached, followed by fifty minutes closed: ten minutes in every hour. Transmit power is
+capped, the driver's own non-stop reconnect scanning is switched off after twenty seconds without a
+join in favour of paced retries, and above 80 °C on the chip sensor the hotspot closes at once and
+will not open even on demand. The footer shows the chip temperature. *Open the hotspot
 now* in Settings, or **holding the case button for ten seconds**, opens it on demand for ten minutes;
 the button route is the way back in when the ESP32 joined a network but cannot be reached on it.
 Mind that the same hold first does what a press does: it starts the console from off, and forces it
 off after five seconds when running.
 
-As a last resort, if Wi-Fi stays down for ten minutes **while the console is off**, the ESP32 restarts
-itself to come back with a fresh radio. It never does that while the console runs.
+As a last resort, if Wi-Fi stays down for an hour **while the console is off**, the ESP32 restarts
+itself to come back with a fresh radio, and the boot after such a restart starts with the hotspot
+resting. It never restarts while the console runs.
 
 | Endpoint | What |
 |----------|------|
@@ -116,6 +127,7 @@ itself to come back with a fresh radio. It never does that while the console run
 | PSU starts on its own | Pins 3 and 4 swapped, or the emitter tied to the logic ground node instead of pin 17 |
 | ESP32 won't boot with sense connected | Sense on a strapping pin; keep it on GPIO 6 |
 | Stays on after shutdown | TPMS1 pin 9 not actually dropping; remeasure |
+| The case button does nothing, the web page's Power on works | Watch the page footer while pressing: it shows `button up ×N` and counts every press the ESP32 sees. If the count does not move, the button is not reaching pad `7` and ground (wrong pad, the mirrored underside labels, or a broken return to the star node). If it counts but nothing starts, the state is not `OFF`: a press only starts the console from `OFF` |
 | HUD shows `FAN n/a`, BIOS hardware monitor shows 65535 rpm, no fan curve | The sense wire sits on, or touches, an LPC signal pin of TPMS1 and knocks the Super I/O off the bus. Unplug it from TPMS1 and the reading comes back; then seat it on the real 3.3 V pin, clear of its neighbours (build step 8) |
 | Shuts down during a warm reboot | Raise `SENSE_LOW_HOLD` above your reboot time |
 | Cuts power ~25 s after every boot | R2 too large, or the sense pin is short of margin |

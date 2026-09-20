@@ -77,6 +77,12 @@ depend on each other.
   re-associate after a run of failures while a fresh radio joined at once, and the first version of
   this feature took the ESP32 off the network until it was power-cycled. The hotspot fallback and the
   console-OFF-only self-restart are the nets under that. Test network changes with the console OFF.
+* **The ESP32's hotspot is a heat source and killed a board.** No modem sleep in AP mode: +17 °C on
+  the chip sensor within minutes, all night fatal. Keep the budget (10 min per opening, 30 max with a
+  client, 50 min rest, 80 °C cut-off, low TX power, no driver auto-reconnect scanning when the network
+  is absent), and never add a path that reopens the hotspot in a loop (the self-heal restart marks the
+  next boot as resting via RTC memory for that reason). `/rest/status` carries `temp`, `btn` and
+  `presses` for checks without a serial cable.
 * **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
   compile because a stale `.bin` was still there.
 * **systemd ordering cycles.** `bc250-tune.service` is `After=multi-user.target` and wanted by it. A

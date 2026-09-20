@@ -25,7 +25,10 @@
 // Hotspot fallback: after three failed joins or 30 s without Wi-Fi the
 // ESP32 opens the WPA2 network "BC250-AP" (password: the OTA
 // password) and serves the same page, power buttons included, at
-// 192.168.4.1. Holding the case button 10 s opens it on demand.
+// 192.168.4.1. Holding the case button 10 s opens it on demand. The
+// hotspot runs hot (no modem sleep), so it is budgeted: 10 min per
+// opening, 30 min at most with a phone attached, then 50 min closed,
+// low transmit power, and closed at once above 80 C on the chip sensor.
 //
 // OTA is gated on ST_OFF by design. Reflashing reboots the ESP32 and
 // the optocoupler LED goes dark before any code runs, so an update
@@ -87,8 +90,17 @@ const uint8_t  AP_AFTER_FAILS = 3;        //   -> open the hotspot with the same
 const uint32_t AP_RETRY_MS    = 60000;    // while the hotspot is up: one quiet rejoin attempt per
                                           //   minute, and none while somebody is connected to it
 const uint32_t AP_FORCE_MS    = 600000;   // hotspot opened by the button stays this long
+// Heat. An access point cannot use modem sleep: the receiver is on all the time, on a tiny
+// regulator fed from 5 V inside a case. A board left all night with wrong Wi-Fi data sat in
+// hotspot mode the whole time and died. So the hotspot has a budget:
+const uint32_t AP_OPEN_MS     = 600000;   // open this long per automatic opening (10 min)...
+const uint32_t AP_HARD_MS     = 1800000;  // ...never longer than this, even with a phone attached
+const uint32_t AP_REST_MS     = 3000000;  // then closed this long (50 min): 10 min per hour at most
+const float    AP_MAX_TEMP_C  = 80.0;     // chip sensor; hotter than this closes the hotspot at once
+const uint32_t JOIN_GRACE_MS  = 20000;    // after this without joining, stop the driver's own
+                                          //   reconnect loop (constant scanning) and pace retries
 const uint32_t SETUP_PRESS    = 10000;    // hold the button this long to open the hotspot
-const uint32_t SELF_HEAL_MS   = 600000;   // Wi-Fi down this long with the console OFF -> restart the
+const uint32_t SELF_HEAL_MS   = 3600000;  // Wi-Fi down this long with the console OFF -> restart the
                                           //   ESP32. Never while the console runs: a restart drops
                                           //   GPIO 4 and would hard-cut it.
 const char    *AP_SSID        = "BC250-AP";
@@ -101,6 +113,11 @@ bool     netViaAp      = false;     // the pending change was saved over the hot
 uint32_t apForceUntil  = 0;         // hotspot forced by the button, regardless of Wi-Fi
 bool     setupFired    = false;
 bool     apUp          = false;
+uint32_t apSince       = 0;         // when the hotspot opened
+uint32_t apRestUntil   = 0;         // no automatic opening before this
+uint32_t btnPresses    = 0;         // presses seen since boot, shown on the page for bench checks
+RTC_NOINIT_ATTR uint32_t healMagic; // survives ESP.restart(): "this boot follows a self-heal"
+const uint32_t HEAL_MAGIC = 0xB250A9E5;
 uint32_t wifiDownSince = 0;
 uint32_t wifiUpSince   = 0;
 
@@ -333,8 +350,8 @@ powers down and the PSU is cut once the board is off.</p>
 <div class="msg" id="netmsg"></div>
 <p class="hint">Applied without restarting the ESP32, so a running console is not affected. If it cannot
 join the network it keeps the previous settings. Whenever it has no Wi-Fi it opens its own hotspot
-<b>BC250-AP</b> (password: your OTA password) with this same page at 192.168.4.1, and holding the
-case button for 10 s opens that hotspot on demand.
+<b>BC250-AP</b> (password: your OTA password) with this same page at 192.168.4.1, for ten minutes in
+every hour so the board does not run hot; holding the case button for 10 s opens it on demand.
 <a href="#" id="hotspot">Open the hotspot now for 10 minutes</a> ·
 <a href="#" id="netreset">Reset Wi-Fi and IP to the firmware defaults</a></p>
 </div>
@@ -347,7 +364,7 @@ case button for 10 s opens that hotspot on demand.
 </div>
 </details>
 <div class="net"><span id="rssi"></span><span id="ota"></span><span id="sense"></span>
-<span id="capi" title="tap to change the bc250-api address"></span></div>
+<span id="capi" title="tap to change the bc250-api address"></span><span id="chip"></span></div>
 <div class="id" id="id"></div>
 </div>
 <script>
@@ -368,6 +385,7 @@ async function poll(){
   $('rssi').textContent='RSSI '+d.rssi+' dBm';
   $('sense').textContent='sense '+(d.sense?'HIGH':'LOW');
   $('ota').textContent=d.ota?'OTA ready':'OTA locked';
+  if(d.temp!=null)$('chip').textContent='chip '+Math.round(d.temp)+' °C · button '+(d.btn?'DOWN':'up')+' ×'+d.presses;
   $('id').textContent=d.ip+'  ·  '+d.mac;
   $('on').disabled=(d.state!='OFF');
   $('off').disabled=(d.state=='OFF'||d.state=='STOPPING');
@@ -523,11 +541,12 @@ void handleRoot() {
 
 void handleStatus() {
   netSeen();
-  char buf[560];
+  char buf[640];
   snprintf(buf, sizeof(buf),
     "{\"state\":\"%s\",\"sense\":%s,\"uptime\":%lu,\"rssi\":%d,"
     "\"heap\":%lu,\"ota\":%s,\"ip\":\"%s\",\"mac\":\"%s\",\"console\":\"%s\","
-    "\"ssid\":\"%s\",\"ap\":%s,\"wifi\":%s,\"net_pending\":%lu}",
+    "\"ssid\":\"%s\",\"ap\":%s,\"wifi\":%s,\"net_pending\":%lu,"
+    "\"temp\":%.1f,\"btn\":%s,\"presses\":%lu}",
     stateName(state),
     boardAlive() ? "true" : "false",
     (unsigned long)(millis() / 1000),
@@ -540,7 +559,10 @@ void handleStatus() {
     jsonEsc(netCur.ssid).c_str(),
     apUp ? "true" : "false",
     WiFi.status() == WL_CONNECTED ? "true" : "false",
-    (unsigned long)netPendingLeft());
+    (unsigned long)netPendingLeft(),
+    temperatureRead(),
+    digitalRead(PIN_BUTTON) == LOW ? "true" : "false",
+    (unsigned long)btnPresses);
   server.send(200, "application/json", buf);
 }
 
@@ -756,18 +778,21 @@ void apStart(const char *why) {
   WiFi.setSleep(false);                     // modem sleep and an AP do not mix
   WiFi.setAutoReconnect(false);             // rejoin attempts are paced by wifiTick()
   bool ok = WiFi.softAP(AP_SSID, strlen(OTA_PASS) >= 8 ? OTA_PASS : "bc250setup");
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);       // a phone next to the console needs no range
+  apSince = millis();
   Serial.printf("[wifi] %s: hotspot %s %s at %s\n", why, AP_SSID, ok ? "up" : "FAILED",
                 WiFi.softAPIP().toString().c_str());
 }
 
-void apStop() {
+void apStop(const char *why, bool rest) {
   if (!apUp) return;
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(WiFi.status() == WL_CONNECTED);
   apUp = false;
-  Serial.println("[wifi] back on Wi-Fi, hotspot closed");
+  if (rest) apRestUntil = millis() + AP_REST_MS;
+  Serial.printf("[wifi] hotspot closed: %s%s\n", why, rest ? " (resting)" : "");
 }
 
 void wifiTick() {
@@ -780,15 +805,30 @@ void wifiTick() {
 
   bool forced = apForceUntil && now < apForceUntil;
   if (apForceUntil && !forced) apForceUntil = 0;
+  bool hot = temperatureRead() >= AP_MAX_TEMP_C;
+  bool resting = apRestUntil && now < apRestUntil;
+  if (apRestUntil && !resting) apRestUntil = 0;
 
   if (!apUp) {
-    if (forced) apStart("button held");
-    else if (!up && !netPending && !netApplyAt &&
+    if (hot) { /* no hotspot while the chip is hot, not even on demand */ }
+    else if (forced) apStart("on demand");
+    else if (!resting && !up && !netPending && !netApplyAt &&
              (staFails >= AP_AFTER_FAILS || now - wifiDownSince >= AP_AFTER_MS))
       apStart("cannot join Wi-Fi");
-  } else if (up && !forced && WiFi.softAPgetStationNum() == 0 && now - wifiUpSince >= 60000) {
-    apStop();
+  } else {
+    uint32_t open = now - apSince;
+    int clients = WiFi.softAPgetStationNum();
+    if (hot)                                                   apStop("chip too hot", true);
+    else if (open >= AP_HARD_MS)                               apStop("30 min limit", true);
+    else if (!forced && clients == 0 && open >= AP_OPEN_MS)    apStop("10 min budget used", true);
+    else if (up && !forced && clients == 0 && now - wifiUpSince >= 60000) apStop("back on Wi-Fi", false);
   }
+
+  // The driver's own auto-reconnect scans without pause when the network is not there, which
+  // keeps the radio busy for nothing. Give a join JOIN_GRACE_MS, then pace the retries below.
+  if (up) { if (!WiFi.getAutoReconnect() && !apUp) WiFi.setAutoReconnect(true); }
+  else if (!netPending && WiFi.getAutoReconnect() && now - wifiLastAttempt >= JOIN_GRACE_MS)
+    WiFi.setAutoReconnect(false);
 
   if (up && !wifiWasUp) {
     Serial.printf("[wifi] connected, IP %s\n", WiFi.localIP().toString().c_str());
@@ -807,7 +847,8 @@ void wifiTick() {
   // the known-good settings from NVS with a fresh radio.
   if (!up && state == ST_OFF && !netPending && !netApplyAt &&
       now - wifiDownSince >= SELF_HEAL_MS && WiFi.softAPgetStationNum() == 0) {
-    Serial.println("[wifi] down for 10 min with the console OFF, restarting the ESP32");
+    Serial.println("[wifi] down for an hour with the console OFF, restarting the ESP32");
+    healMagic = HEAL_MAGIC;                 // the next boot starts with the hotspot resting
     delay(100);
     ESP.restart();
   }
@@ -944,6 +985,11 @@ void setup() {
   while (!Serial && millis() - t0 < 2000) delay(10);
   delay(200);
 
+  // A boot that follows a self-heal restart must not reopen the hotspot at once, or a box with
+  // no Wi-Fi would sit in hotspot mode around the clock after all.
+  if (healMagic == HEAL_MAGIC) apRestUntil = AP_REST_MS;
+  healMagic = 0;
+
   loadConsoleApi();
   netLoad();
   WiFi.onEvent(onWifiEvent);
@@ -999,6 +1045,7 @@ bool buttonDown() {
     // kills it five seconds later.
     longArmed = (state == ST_RUNNING);
     setupFired = false;
+    btnPresses++;
     return true;
   }
   return false;                    // released
