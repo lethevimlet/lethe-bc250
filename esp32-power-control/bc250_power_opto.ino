@@ -124,6 +124,10 @@ uint32_t apSince       = 0;         // when the hotspot opened
 bool     bootApUsed    = false;     // the one automatic opening after power-up has been spent
 bool     everUp        = false;     // Wi-Fi has been joined at least once since boot
 uint32_t btnPresses    = 0;         // presses seen since boot, shown on the page for bench checks
+// Bench aid: every free pad is read with a pull-up and remembered if it was ever pulled to ground,
+// so a button soldered to the wrong pad shows up in /rest/status ("lows") instead of doing nothing.
+const uint8_t PROBE_PINS[] = {0, 1, 2, 3, 5, 8, 9, 20, 21};
+uint32_t probeLows = 0;             // bit i set: PROBE_PINS[i] has been low since boot
 RTC_NOINIT_ATTR uint32_t healMagic; // survives ESP.restart(): "this boot follows a self-heal"
 const uint32_t HEAL_MAGIC = 0xB250A9E5;
 uint32_t wifiDownSince = 0;
@@ -138,6 +142,10 @@ bool otaEnabled = false;                   // only armed while state == ST_OFF
 const uint8_t PIN_OPTO   = 4;   // drives the PC817 LED through R3
 const uint8_t PIN_SENSE  = 6;
 const uint8_t PIN_BUTTON = 7;
+// Second button input, same wiring (pad to button to G). A SuperMini turned up whose pad 7
+// was not connected to the chip: the pad measured 0 V while the firmware read its pull-up
+// as high, and no press ever arrived. Either pad works; an unused one just stays pulled up.
+const uint8_t PIN_BUTTON_ALT = 10;
 
 // ---- Timing. All milliseconds ----------------------------------
 const uint32_t BOOT_BLANKING  = 15000;  // ignore sense while the board boots
@@ -394,7 +402,7 @@ async function poll(){
   $('rssi').textContent='RSSI '+d.rssi+' dBm';
   $('sense').textContent='sense '+(d.sense?'HIGH':'LOW');
   $('ota').textContent=d.ota?'OTA ready':'OTA locked';
-  if(d.temp!=null)$('chip').textContent='chip '+Math.round(d.temp)+' °C · button '+(d.btn?'DOWN':'up')+' ×'+d.presses;
+  if(d.temp!=null)$('chip').textContent='chip '+Math.round(d.temp)+' °C · button '+(d.btn?'DOWN':'up')+' ×'+d.presses+(d.lows?' · pads seen low: '+d.lows:'');
   $('id').textContent=d.ip+'  ·  '+d.mac;
   $('on').disabled=(d.state!='OFF');
   $('off').disabled=(d.state=='OFF'||d.state=='STOPPING');
@@ -540,6 +548,30 @@ String jsonEsc(const String &in) {
   return out;
 }
 
+// Live level of every pad, e.g. "0:1 1:1 ... 7:0": 0 = at ground right now.
+String pinLevels() {
+  const uint8_t all[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 21};
+  String out;
+  for (size_t i = 0; i < sizeof(all); i++) {
+    if (out.length()) out += " ";
+    out += String(all[i]) + ":" + String(digitalRead(all[i]));
+  }
+  return out;
+}
+
+String probeList() {
+  String out;
+  for (size_t i = 0; i < sizeof(PROBE_PINS); i++)
+    if (probeLows & (1UL << i)) { if (out.length()) out += ","; out += String(PROBE_PINS[i]); }
+  return out;
+}
+
+void probeTick() {
+  if (millis() < 3000) return;               // let the strapping pins settle after boot
+  for (size_t i = 0; i < sizeof(PROBE_PINS); i++)
+    if (digitalRead(PROBE_PINS[i]) == LOW) probeLows |= (1UL << i);
+}
+
 uint32_t netPendingLeft() {
   if (!netPending) return 0;
   uint32_t el = millis() - netPendingSince;
@@ -553,12 +585,12 @@ void handleRoot() {
 
 void handleStatus() {
   netSeen();
-  char buf[640];
+  char buf[800];
   snprintf(buf, sizeof(buf),
     "{\"state\":\"%s\",\"sense\":%s,\"uptime\":%lu,\"rssi\":%d,"
     "\"heap\":%lu,\"ota\":%s,\"ip\":\"%s\",\"mac\":\"%s\",\"console\":\"%s\","
     "\"ssid\":\"%s\",\"ap\":%s,\"wifi\":%s,\"net_pending\":%lu,"
-    "\"temp\":%.1f,\"btn\":%s,\"presses\":%lu}",
+    "\"temp\":%.1f,\"btn\":%s,\"presses\":%lu,\"lows\":\"%s\",\"pins\":\"%s\"}",
     stateName(state),
     boardAlive() ? "true" : "false",
     (unsigned long)(millis() / 1000),
@@ -573,8 +605,10 @@ void handleStatus() {
     WiFi.status() == WL_CONNECTED ? "true" : "false",
     (unsigned long)netPendingLeft(),
     temperatureRead(),
-    digitalRead(PIN_BUTTON) == LOW ? "true" : "false",
-    (unsigned long)btnPresses);
+    buttonRaw() == LOW ? "true" : "false",
+    (unsigned long)btnPresses,
+    probeList().c_str(),
+    pinLevels().c_str());
   server.send(200, "application/json", buf);
 }
 
@@ -1006,6 +1040,8 @@ void setup() {
   // reads LOW on its own as soon as TPMS1 stops driving 3.3 V.
   pinMode(PIN_SENSE, INPUT_PULLDOWN);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_BUTTON_ALT, INPUT_PULLUP);
+  for (size_t i = 0; i < sizeof(PROBE_PINS); i++) pinMode(PROBE_PINS[i], INPUT_PULLUP);
 
   // 80 MHz is plenty here and trims both draw and heat.
   setCpuFrequencyMhz(80);
@@ -1055,10 +1091,15 @@ void setup() {
 #endif
 }
 
+// LOW while the button is down, on either button pad.
+int buttonRaw() {
+  return (digitalRead(PIN_BUTTON) == LOW || digitalRead(PIN_BUTTON_ALT) == LOW) ? LOW : HIGH;
+}
+
 // Fires once on the press itself, not on release, so holding the button
 // down from OFF still starts the machine.
 bool buttonDown() {
-  bool raw = digitalRead(PIN_BUTTON);
+  bool raw = buttonRaw();
   uint32_t now = millis();
 
   if (raw != btnLastRead) {
@@ -1120,6 +1161,7 @@ void loop() {
   server.handleClient();
   wifiTick();
   setupPressTick();
+  probeTick();
 
   // The state machine is not running here, so OTA stays armed whenever
   // the radio is up. Nothing is powered from the bench.
@@ -1144,7 +1186,7 @@ void loop() {
       Serial.printf("[bench] output=%s  sense=%s  button=%s  ip=%s\n",
                     optoState ? "ON" : "OFF",
                     digitalRead(PIN_SENSE) == HIGH ? "HIGH" : "LOW",
-                    digitalRead(PIN_BUTTON) == LOW ? "PRESSED" : "released",
+                    buttonRaw() == LOW ? "PRESSED" : "released",
                     WiFi.localIP().toString().c_str());
     }
   }
@@ -1155,7 +1197,7 @@ void loop() {
   static uint32_t nPress = 0, tDown = 0;
 
   int s = digitalRead(PIN_SENSE);
-  int b = digitalRead(PIN_BUTTON);
+  int b = buttonRaw();
 
   if (s != lastSense) {
     Serial.printf("[bench] sense -> %s\n", s == HIGH ? "HIGH" : "LOW");
@@ -1182,6 +1224,7 @@ void loop() {
   server.handleClient();
   wifiTick();
   setupPressTick();
+  probeTick();
 
   // Arm OTA only while the PSU is off, and only once the radio is up.
   // Reflashing reboots the board and the LED goes dark before any code

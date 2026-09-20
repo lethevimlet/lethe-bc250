@@ -43,7 +43,7 @@ ever need to undo it.
 | PC817 pin 4 · collector | ATX pin 16 · PS_ON | — |
 | PC817 pin 3 · emitter | ATX pin 17 · GND | — |
 | BC-250 TPMS1 pin 9 | ESP32 GPIO 6 | R2, 1 kΩ |
-| ESP32 GPIO 7 | Logic ground node | Push button |
+| ESP32 GPIO 7 (or GPIO 10, the firmware reads both) | Logic ground node | Push button |
 
 The logic ground node is a star: the ESP32 GND pad, the button return and PC817 pin 2 meet at one
 joint, and a single wire runs from that joint to ATX pin 15. The power cable to the BC-250 is not

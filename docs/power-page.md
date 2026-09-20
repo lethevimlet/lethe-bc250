@@ -122,7 +122,9 @@ hotspot. It never restarts while the console runs.
 * The web page and `/rest/on`, `/rest/off`, `/rest/status` do the same over the network. A web off is
   a hard cut. `/rest/status` also carries `console`, the `bc250-api` address the page polls;
   `/rest/console?url=…` changes it without a reflash, and `/rest/net` does the same for Wi-Fi and IP
-  (see Settings above).
+  (see Settings above). For bench checks without a serial cable it also has `temp` (chip, °C), `btn` and
+  `presses` (the button, on pad `7` or `10`), `lows` (other free pads pulled to ground since boot) and
+  `pins` (the live level of every pad).
 * After a mains outage the machine stays off and waits for a press. To change that, call `psuOn()` at
   the end of `setup()` instead of entering `ST_OFF`.
 * An ESP32 crash or watchdog reset cuts a running machine: the LED goes dark before any code runs.
@@ -138,7 +140,7 @@ hotspot. It never restarts while the console runs.
 | PSU starts on its own | Pins 3 and 4 swapped, or the emitter tied to the logic ground node instead of pin 17 |
 | ESP32 won't boot with sense connected | Sense on a strapping pin; keep it on GPIO 6 |
 | Stays on after shutdown | TPMS1 pin 9 not actually dropping; remeasure |
-| The case button does nothing, the web page's Power on works | Watch the page footer while pressing: it shows `button up ×N` and counts every press the ESP32 sees. If the count does not move, the button is not reaching pad `7` and ground (wrong pad, the mirrored underside labels, or a broken return to the star node). If it counts but nothing starts, the state is not `OFF`: a press only starts the console from `OFF` |
+| The case button does nothing, the web page's Power on works | Watch the page footer while pressing: it shows `button up ×N` and counts every press the ESP32 sees. If the count does not move, the button is not reaching pad `7` and ground (wrong pad, the mirrored underside labels, or a broken return to the star node). If the wiring checks out, measure pad `7` against the USB-C shell with the ESP32 powered: it must read 3.3 V at rest. 0 V there, with nothing connected that could pull it down, is a pad that never reached the chip (seen on one SuperMini): move the button wire to pad `10`, which the firmware reads as well. The footer also lists `pads seen low`, any other free pad that was pulled to ground since boot, which finds a wire on the wrong pad. If it counts but nothing starts, the state is not `OFF`: a press only starts the console from `OFF` |
 | HUD shows `FAN n/a`, BIOS hardware monitor shows 65535 rpm, no fan curve | The sense wire sits on, or touches, an LPC signal pin of TPMS1 and knocks the Super I/O off the bus. Unplug it from TPMS1 and the reading comes back; then seat it on the real 3.3 V pin, clear of its neighbours (build step 8) |
 | Shuts down during a warm reboot | Raise `SENSE_LOW_HOLD` above your reboot time |
 | Cuts power ~25 s after every boot | R2 too large, or the sense pin is short of margin |

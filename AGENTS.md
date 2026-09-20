@@ -85,6 +85,10 @@ depend on each other.
   is absent), and never add a path that reopens the hotspot in a loop (the self-heal restart marks the
   next boot as "not a power-up" via RTC memory for that reason). `/rest/status` carries `temp`, `btn` and
   `presses` for checks without a serial cable.
+* **A button that does nothing is not always wiring or firmware.** One SuperMini had a pad `7` that never
+  reached the chip: the firmware read its pull-up as high forever while the pad measured 0 V. The
+  firmware reads the button on pad `7` or `10`, and `/rest/status` has `lows` (free pads pulled to ground
+  since boot) and `pins` (live levels) to find such things remotely. Compare the meter with `pins` early.
 * **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
   compile because a stale `.bin` was still there.
 * **systemd ordering cycles.** `bc250-tune.service` is `After=multi-user.target` and wanted by it. A
