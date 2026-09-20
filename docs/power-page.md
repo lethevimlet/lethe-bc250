@@ -79,15 +79,20 @@ buttons. While the hotspot is up the ESP32 retries Wi-Fi only once a minute and 
 phone is connected to it, and it closes the hotspot a minute after Wi-Fi is back.
 
 **The hotspot is budgeted, because it runs hot.** An access point cannot use modem sleep: the
-receiver is on all the time. Measured on the board, the chip sensor reads about 47 °C in normal Wi-Fi
-mode and 64 °C after three minutes of hotspot, at the reduced transmit power, and the small regulator
-next to it runs hotter than that. One board that was left overnight with wrong Wi-Fi data, and so in
-hotspot mode the whole night, died. So an automatic opening lasts ten minutes, thirty at most while a
-phone stays attached, followed by fifty minutes closed: ten minutes in every hour. Transmit power is
-capped, the driver's own non-stop reconnect scanning is switched off after twenty seconds without a
-join in favour of paced retries, and above 80 °C on the chip sensor the hotspot closes at once and
-will not open even on demand. The footer shows the chip temperature. *Open the hotspot
-now* in Settings, or **holding the case button for ten seconds**, opens it on demand for ten minutes;
+receiver is on all the time. Measured on the board, the chip sensor reads about 45 °C in normal Wi-Fi
+mode and 61 °C within ninety seconds of hotspot. Minimum transmit power, beacons four times sparser
+and a single allowed client bought one or two degrees, no more: the always-on receiver is the cost,
+and no setting keeps an active hotspot in the 40s. The same log shows the reading back at 46 °C
+within thirty seconds of closing, so what matters for the hardware is the long-run average, and that
+is what the firmware limits. An automatic opening lasts five minutes, fifteen at most while a phone
+stays attached, followed by fifty-five minutes closed: five minutes in every hour, which keeps the
+average in the 40s. One board that was left overnight with wrong Wi-Fi data, on the first firmware
+without this budget, sat in hotspot mode all night and died. On top of the budget, the driver's own
+non-stop reconnect scanning is switched off after twenty seconds without a join in favour of paced
+retries, and above 70 °C on the chip sensor the hotspot closes at once and will not open even on
+demand. *Open the hotspot* in Settings becomes *Close the hotspot* while it is up. The footer shows
+the chip temperature. *Open the hotspot
+now* in Settings, or **holding the case button for ten seconds**, opens it on demand for five minutes;
 the button route is the way back in when the ESP32 joined a network but cannot be reached on it.
 Mind that the same hold first does what a press does: it starts the console from off, and forces it
 off after five seconds when running.
@@ -100,7 +105,7 @@ resting. It never restarts while the console runs.
 |----------|------|
 | `GET /rest/net` | current and saved network settings, without the password; `last_error` after a rollback |
 | `POST /rest/net` | `ssid`, `pass`, `open`, `mode=dhcp\|static`, `ip`, `gw`, `mask`, `dns`, `ota`; `reset=1` returns to the compiled defaults |
-| `POST /rest/hotspot` | `ota`; opens the hotspot for ten minutes |
+| `POST /rest/hotspot` | `ota`; opens the hotspot for five minutes (`secs=30…300`), `off=1` closes it |
 | `GET /rest/console?url=…` | the `bc250-api` address; empty restores the compiled default |
 
 * A short press when off starts the machine. A short press while running does nothing on purpose:

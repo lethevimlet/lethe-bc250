@@ -78,8 +78,9 @@ depend on each other.
   this feature took the ESP32 off the network until it was power-cycled. The hotspot fallback and the
   console-OFF-only self-restart are the nets under that. Test network changes with the console OFF.
 * **The ESP32's hotspot is a heat source and killed a board.** No modem sleep in AP mode: +17 °C on
-  the chip sensor within minutes, all night fatal. Keep the budget (10 min per opening, 30 max with a
-  client, 50 min rest, 80 °C cut-off, low TX power, no driver auto-reconnect scanning when the network
+  the chip sensor within minutes, all night fatal. Settings cannot fix it (minimum TX power, sparse beacons and one client
+  bought 1-2 °C: the always-on receiver is the cost), only time can. Keep the budget (5 min per opening,
+  15 max with a client, 55 min rest, 70 °C cut-off, minimum TX power, no driver auto-reconnect scanning when the network
   is absent), and never add a path that reopens the hotspot in a loop (the self-heal restart marks the
   next boot as resting via RTC memory for that reason). `/rest/status` carries `temp`, `btn` and
   `presses` for checks without a serial cable.

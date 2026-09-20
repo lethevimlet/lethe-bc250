@@ -26,9 +26,9 @@
 // ESP32 opens the WPA2 network "BC250-AP" (password: the OTA
 // password) and serves the same page, power buttons included, at
 // 192.168.4.1. Holding the case button 10 s opens it on demand. The
-// hotspot runs hot (no modem sleep), so it is budgeted: 10 min per
-// opening, 30 min at most with a phone attached, then 50 min closed,
-// low transmit power, and closed at once above 80 C on the chip sensor.
+// hotspot runs hot (no modem sleep), so it is budgeted: 5 min per
+// opening, 15 min at most with a phone attached, then 55 min closed,
+// minimum transmit power, and closed at once above 70 C on the chip sensor.
 //
 // OTA is gated on ST_OFF by design. Reflashing reboots the ESP32 and
 // the optocoupler LED goes dark before any code runs, so an update
@@ -48,6 +48,7 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <Preferences.h>
+#include <esp_wifi.h>
 
 #define BENCH_MODE 0
 
@@ -89,14 +90,18 @@ const uint32_t AP_AFTER_MS    = 30000;    // no Wi-Fi this long, or AP_AFTER_FAI
 const uint8_t  AP_AFTER_FAILS = 3;        //   -> open the hotspot with the same page
 const uint32_t AP_RETRY_MS    = 60000;    // while the hotspot is up: one quiet rejoin attempt per
                                           //   minute, and none while somebody is connected to it
-const uint32_t AP_FORCE_MS    = 600000;   // hotspot opened by the button stays this long
+const uint32_t AP_FORCE_MS    = 300000;   // hotspot opened on demand (button, page) stays this long
 // Heat. An access point cannot use modem sleep: the receiver is on all the time, on a tiny
 // regulator fed from 5 V inside a case. A board left all night with wrong Wi-Fi data sat in
 // hotspot mode the whole time and died. So the hotspot has a budget:
-const uint32_t AP_OPEN_MS     = 600000;   // open this long per automatic opening (10 min)...
-const uint32_t AP_HARD_MS     = 1800000;  // ...never longer than this, even with a phone attached
-const uint32_t AP_REST_MS     = 3000000;  // then closed this long (50 min): 10 min per hour at most
-const float    AP_MAX_TEMP_C  = 80.0;     // chip sensor; hotter than this closes the hotspot at once
+// Measured: 45 C in station mode, 61 C within 90 s of hotspot whatever the transmit power or
+// beacon rate (the always-on receiver is the cost), back to 46 C within 30 s of closing. The
+// sensor follows instantaneous power; what ages the board is the long-run average, so:
+const uint32_t AP_OPEN_MS     = 300000;   // open this long per automatic opening (5 min)...
+const uint32_t AP_HARD_MS     = 900000;   // ...never longer than this, even with a phone attached
+const uint32_t AP_REST_MS     = 3300000;  // then closed this long (55 min): 5 min per hour at most
+const float    AP_MAX_TEMP_C  = 70.0;     // chip sensor; hotter than this closes the hotspot at once
+const uint16_t AP_BEACON_MS   = 400;      // sparse beacons (default 100 ms); phones still find it
 const uint32_t JOIN_GRACE_MS  = 20000;    // after this without joining, stop the driver's own
                                           //   reconnect loop (constant scanning) and pace retries
 const uint32_t SETUP_PRESS    = 10000;    // hold the button this long to open the hotspot
@@ -350,9 +355,10 @@ powers down and the PSU is cut once the board is off.</p>
 <div class="msg" id="netmsg"></div>
 <p class="hint">Applied without restarting the ESP32, so a running console is not affected. If it cannot
 join the network it keeps the previous settings. Whenever it has no Wi-Fi it opens its own hotspot
-<b>BC250-AP</b> (password: your OTA password) with this same page at 192.168.4.1, for ten minutes in
-every hour so the board does not run hot; holding the case button for 10 s opens it on demand.
-<a href="#" id="hotspot">Open the hotspot now for 10 minutes</a> ·
+<b>BC250-AP</b> (password: your OTA password) with this same page at 192.168.4.1, for five minutes in
+every hour so the board does not run hot (five minutes at a time); holding the case button for 10 s
+opens it on demand, and the link below opens or closes it.
+<a href="#" id="hotspot">Open the hotspot for 5 minutes</a> ·
 <a href="#" id="netreset">Reset Wi-Fi and IP to the firmware defaults</a></p>
 </div>
 <div class="grp"><h3>Console (bc250-api)</h3>
@@ -391,7 +397,8 @@ async function poll(){
   $('off').disabled=(d.state=='OFF'||d.state=='STOPPING');
   api=new URLSearchParams(location.search).get('console')||d.console||null;
   $('capi').textContent='console '+(d.console?d.console.replace(/^https?:[/][/]/,''):'not set');
-  const viaAp=location.hostname=='192.168.4.1';
+  const viaAp=location.hostname=='192.168.4.1';apNow=!!d.ap;
+  $('hotspot').textContent=apNow?'Close the hotspot':'Open the hotspot for 5 minutes';
   $('apb').className='apb'+(d.ap?' show':'');
   if(d.ap)$('apb').innerHTML=viaAp?('You are on the ESP32\'s own hotspot'+(d.wifi?'.':', because it cannot join <b>'+esc(d.ssid||'Wi-Fi')+'</b>.')+
    ' Set the Wi-Fi under Settings below, or simply use the buttons.'):'The hotspot <b>BC250-AP</b> is open.';
@@ -407,7 +414,7 @@ $('off').onclick=async()=>{if(!confirm('Hard-cut power to the machine?'))return;
 // Editable in every state, so the service can be installed on the console later.
 function editConsole(){$('set').open=true;loadNet();$('capi2').value=api||'';$('capi2').focus();
  $('capi2').scrollIntoView({block:'center'})}
-const SL='/';let statMode=false,apOpened=false;
+const SL='/';let statMode=false,apOpened=false,apNow=false;
 const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function setMode(on){statMode=on;$('mstat').className=on?'sel':'';$('mdhcp').className=on?'':'sel';
  $('stat').style.display=on?'':'none'}
@@ -459,8 +466,10 @@ $('netsave').onclick=()=>{const b=new URLSearchParams();
  b.set('mode',statMode?'static':'dhcp');b.set('ip',$('sip').value.trim());b.set('gw',$('sgw').value.trim());
  b.set('mask',$('smask').value.trim());b.set('dns',$('sdns').value.trim());b.set('ota',$('sota').value);postNet(b)};
 $('hotspot').onclick=async e=>{e.preventDefault();const m=$('netmsg'),b=new URLSearchParams();b.set('ota',$('sota').value);
+ if(apNow)b.set('off','1');
  try{const r=await fetch('/rest/hotspot',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()}),j=await r.json();
-  m.textContent=j.ok?'Hotspot '+j.ssid+' is open for '+j.minutes+' minutes. Wi-Fi stays connected.':'Not opened: '+(j.error||'error')+' (enter the OTA password above)'}
+  m.textContent=!j.ok?'Not done: '+(j.error||'error')+' (enter the OTA password above)':
+   j.open?'Hotspot '+j.ssid+' is open for '+j.minutes+' minutes. Wi-Fi stays connected.':'Hotspot closed.';poll()}
  catch(x){m.textContent='No answer from the ESP32.'}};
 $('netreset').onclick=e=>{e.preventDefault();
  if(!confirm('Go back to the Wi-Fi and IP settings compiled into the firmware?'))return;
@@ -583,8 +592,18 @@ void handleHotspot() {
     server.send(403, "application/json", "{\"ok\":false,\"error\":\"wrong OTA password\"}");
     return;
   }
-  apForceUntil = millis() + AP_FORCE_MS;
-  server.send(200, "application/json", String("{\"ok\":true,\"ssid\":\"") + AP_SSID + "\",\"minutes\":" + String(AP_FORCE_MS / 60000) + "}");
+  if (server.arg("off") == "1") {            // close it now
+    apForceUntil = 0;
+    apStop("closed on request", false);
+    server.send(200, "application/json", "{\"ok\":true,\"open\":false}");
+    return;
+  }
+  uint32_t secs = server.hasArg("secs") ? (uint32_t)server.arg("secs").toInt() : AP_FORCE_MS / 1000;
+  if (secs < 30) secs = 30;
+  if (secs > AP_FORCE_MS / 1000) secs = AP_FORCE_MS / 1000;
+  apForceUntil = millis() + secs * 1000UL;
+  server.send(200, "application/json", String("{\"ok\":true,\"open\":true,\"ssid\":\"") + AP_SSID +
+    "\",\"minutes\":" + String((secs + 59) / 60) + ",\"secs\":" + String(secs) + "}");
 }
 
 void handleConsole() {
@@ -777,8 +796,15 @@ void apStart(const char *why) {
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);                     // modem sleep and an AP do not mix
   WiFi.setAutoReconnect(false);             // rejoin attempts are paced by wifiTick()
-  bool ok = WiFi.softAP(AP_SSID, strlen(OTA_PASS) >= 8 ? OTA_PASS : "bc250setup");
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);       // a phone next to the console needs no range
+  // Low-power access point: one client, sparse beacons, minimum transmit power. The receiver
+  // still has to stay on, which is where most of the heat comes from.
+  bool ok = WiFi.softAP(AP_SSID, strlen(OTA_PASS) >= 8 ? OTA_PASS : "bc250setup", 1, 0, 1);
+  wifi_config_t conf;
+  if (esp_wifi_get_config(WIFI_IF_AP, &conf) == ESP_OK) {
+    conf.ap.beacon_interval = AP_BEACON_MS;
+    esp_wifi_set_config(WIFI_IF_AP, &conf);
+  }
+  WiFi.setTxPower(WIFI_POWER_2dBm);         // a phone next to the console needs no range
   apSince = millis();
   Serial.printf("[wifi] %s: hotspot %s %s at %s\n", why, AP_SSID, ok ? "up" : "FAILED",
                 WiFi.softAPIP().toString().c_str());
@@ -789,6 +815,7 @@ void apStop(const char *why, bool rest) {
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.setAutoReconnect(WiFi.status() == WL_CONNECTED);
   apUp = false;
   if (rest) apRestUntil = millis() + AP_REST_MS;
@@ -822,6 +849,7 @@ void wifiTick() {
     else if (open >= AP_HARD_MS)                               apStop("30 min limit", true);
     else if (!forced && clients == 0 && open >= AP_OPEN_MS)    apStop("10 min budget used", true);
     else if (up && !forced && clients == 0 && now - wifiUpSince >= 60000) apStop("back on Wi-Fi", false);
+    else if (up && !forced && open >= AP_OPEN_MS)                          apStop("on-demand window over", false);
   }
 
   // The driver's own auto-reconnect scans without pause when the network is not there, which
