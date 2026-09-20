@@ -119,6 +119,9 @@ hotspot. It never restarts while the console runs.
   do not work on the BC-250 ([Things we learned](lessons.md)), and a sleeping board would leave the PSU on with no way to wake.
 * Hold the button five seconds to force the PSU off. This only arms once the firmware has reached
   RUNNING, which needs the sense line connected.
+* Hold the button ten seconds to open the `BC250-AP` hotspot for five minutes (see Hotspot fallback
+  above). The hold does the other things on its way: from off it has already started the console, and
+  a running console is forced off at five seconds.
 * The web page and `/rest/on`, `/rest/off`, `/rest/status` do the same over the network. A web off is
   a hard cut. `/rest/status` also carries `console`, the `bc250-api` address the page polls;
   `/rest/console?url=…` changes it without a reflash, and `/rest/net` does the same for Wi-Fi and IP
