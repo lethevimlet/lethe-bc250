@@ -106,8 +106,14 @@ for old, new in (('"YOUR_SSID"', cstr(ssid)), ('"YOUR_PASSWORD"', cstr(pw)), ('"
 open(dst, 'w').write(s)
 PY
     say "Compiling for ESP32-C3 (first build downloads the compiler, later ones take ~1 min)"
-    acli compile --fqbn "$FQBN" --output-dir "$OUT" "$d" 2>&1 | grep -E "Sketch uses|Global variables|error" || true
-    [ -f "$OUT/bc250_power_opto.ino.bin" ] || die "build failed"
+    # a stale binary from an earlier build must never pass for this one
+    rm -f "$OUT/bc250_power_opto.ino.bin"
+    if ! acli compile --fqbn "$FQBN" --output-dir "$OUT" "$d" > "$WORK/compile.log" 2>&1; then
+        grep -E "error|Error" "$WORK/compile.log" | head -20
+        die "build failed (full log: $WORK/compile.log)"
+    fi
+    grep -E "Sketch uses|Global variables" "$WORK/compile.log" || true
+    [ -f "$OUT/bc250_power_opto.ino.bin" ] || die "build produced no binary (log: $WORK/compile.log)"
     ok "firmware: $OUT/bc250_power_opto.ino.bin"
 }
 

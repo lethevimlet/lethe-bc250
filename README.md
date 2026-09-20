@@ -22,7 +22,8 @@ was built from these instructions alone.
   off. It takes over Steam's own Sleep entry. [Fake sleep](https://lethevimlet.github.io/lethe-bc250/sleep.html)
 * **A real power button, and a phone page.** An ESP32 behind an optocoupler gives the board a proper
   front button and a web page with Power on, Shut down, Sleep and Force off, live stats (FPS, clocks,
-  temperatures, watts, fan) and every tuning switch.
+  temperatures, watts, fan) and every tuning switch. Wi-Fi, a static IP and the console address are
+  set from the page, and with no Wi-Fi it opens its own hotspot, so it never needs a reflash to move.
   [Soft power control](https://lethevimlet.github.io/lethe-bc250/power.html)
 * <a id="46-stats-and-switches-over-the-network-bc250-api"></a>**Stats and switches over the LAN.**
   `bc250-api` is a tiny REST service on the console that feeds that page, and anything else you point

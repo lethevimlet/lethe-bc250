@@ -68,6 +68,17 @@ depend on each other.
   bogus prototypes for the page's JavaScript (`'function' does not name a type`). Write regex slashes
   as `[/][/]` and URL slashes as `&#47;&#47;`. Line-start `//` comments in the JS are tolerated only
   because they happen not to swallow a quote; do not rely on it.
+* **A lone double quote in the page script breaks the build too.** Same generator, same cause: it
+  tracks `"` across the whole raw string. `/[&<>"]/` or `'"'` in the JavaScript made every C function
+  after the page "not declared in this scope". Keep double quotes paired inside HTML attributes only.
+* **Wi-Fi changes on the ESP32 must never need a reboot and must be able to fail.** The firmware applies
+  network settings without restarting, gives untested credentials three joins in 25 s, and rolls back
+  with a full radio restart (`WIFI_OFF` then begin): on hardware, the running stack would not
+  re-associate after a run of failures while a fresh radio joined at once, and the first version of
+  this feature took the ESP32 off the network until it was power-cycled. The hotspot fallback and the
+  console-OFF-only self-restart are the nets under that. Test network changes with the console OFF.
+* **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
+  compile because a stale `.bin` was still there.
 * **systemd ordering cycles.** `bc250-tune.service` is `After=multi-user.target` and wanted by it. A
   unit that is `After=bc250-tune.service` and also wanted by multi-user is a cycle, and systemd
   silently drops it from the boot. Check with `systemd-analyze verify`.

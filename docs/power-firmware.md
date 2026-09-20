@@ -30,6 +30,9 @@ is run on a machine that is not a BC-250. The manual IDE route:
    and you lose half the diagnostics. The setting is compiled into the binary, so if you change it you
    must recompile and re-upload; reopening the monitor is not enough.
 4. **Configure the sketch.** Open `esp32-power-control/bc250_power_opto.ino` and set:
+   These are first-boot defaults: Wi-Fi, a static IP and the console address can all be changed later
+   from the page's [Settings](power-page.md#settings-wi-fi-ip-address-console-address) without a
+   reflash, and a board that cannot join Wi-Fi opens its own hotspot for that.
    * `WIFI_SSID` / `WIFI_PASS` — WPA2 needs an 8–63 character passphrase; leave `WIFI_PASS` as `""`
      for an open network.
    * `OTA_PASS` — **never leave it empty**; this firmware owns the machine's power path.
@@ -37,7 +40,7 @@ is run on a machine that is not a BC-250. The manual IDE route:
      routers and phones do not resolve `.local`, so the reliable address is the ESP32's IP, fixed with a
      DHCP reservation (below).
    * `CONSOLE_API` — default `http://<console-ip>:8250` where `bc250-api` runs ([Stats and switches over the network](api.md)).
-     It can be changed later from the page footer (kept in the ESP32's NVS), so a new console IP
+     It can be changed later from the page's Settings (kept in the ESP32's NVS), so a new console IP
      needs no reflash. `""` hides the Console panel.
    * `BENCH_MODE` — `1` for bench testing (see below), `0` for normal use.
 5. **Disconnect the +5VSB wire before plugging in USB.** Most SuperMini clones tie USB VBUS straight to

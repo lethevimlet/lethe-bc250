@@ -37,8 +37,60 @@ when a change still needs a warm reboot or a session restart a notice appears wi
 it. The tiles and switches only appear once `bc250-api` answers; until then (the OS still booting,
 or the service not installed) the panel shows a short notice with **retry** and **change address**
 links and a pointer to [Stats and switches over the network](api.md), and it says `asleep` during a fake sleep.
-The footer's `console …` entry shows the `bc250-api` address; tap it to change it (`GET
-/rest/console?url=http://host:8250`, stored in NVS, empty restores the compiled default).
+The footer's `console …` entry shows the `bc250-api` address; tapping it opens **Settings**.
+
+## Settings: Wi-Fi, IP address, console address
+
+<p align="center">
+  <img src="images/esp32-settings.png" alt="The Settings section of the ESP32 page: Wi-Fi name and password, DHCP or static IP with address, gateway, mask and DNS, the OTA password to confirm, and a separate box for the bc250-api address" width="300">
+</p>
+
+Everything that used to need a reflash lives in one collapsible **Settings** section at the bottom of
+the page. The values compiled into the sketch are only the first-boot defaults; what you save here is
+kept in the ESP32's flash and wins over them.
+
+* **Wi-Fi**: network name and password (leave the password empty to keep the current one, or tick
+  *open network*).
+* **IP address**: *Automatic (DHCP)* or *Static* with address, gateway, subnet mask and optional DNS.
+  The static fields come pre-filled with what DHCP currently gives, so switching to static keeps the
+  same address unless you change it.
+* **Console (bc250-api)**: the address the page polls for stats and switches, in its own box with
+  its own save button. No password needed for this one.
+
+Saving Wi-Fi or IP settings asks for the **OTA password**, because losing them can lock you out. The
+read endpoint never returns the Wi-Fi password.
+
+**A change cannot cut a running console.** It is applied without restarting the ESP32, so the PSU
+stays latched. It is also only made permanent once it has proven itself:
+
+1. New credentials get three join attempts within 25 seconds. If the ESP32 cannot join, it restarts
+   its radio, returns to the previous settings and the page says why (*could not join that network,
+   name or password wrong?*). On the test bench a wrong password cost eleven seconds.
+2. If it joins but nothing reaches it within two minutes (a wrong static IP), it returns to the
+   previous settings too. Reaching it, on the old address or the new one, is what saves the change;
+   the page polls the new static address for you and moves there.
+3. A power loss in between boots the previous, known-good settings.
+
+**Hotspot fallback.** Whenever the ESP32 has no Wi-Fi, after three failed joins or 30 seconds, it opens
+its own WPA2 network **`bc250-setup`** (password: your OTA password) and serves the same page at
+`http://192.168.4.1`, power buttons included. So a console that moved house, or a router that changed
+its password, needs no reflash: join the hotspot, fix the Wi-Fi under Settings, or simply use the
+buttons. While the hotspot is up the ESP32 retries Wi-Fi only once a minute and not at all while a
+phone is connected to it, and it closes the hotspot a minute after Wi-Fi is back. *Open the hotspot
+now* in Settings, or **holding the case button for ten seconds**, opens it on demand for ten minutes;
+the button route is the way back in when the ESP32 joined a network but cannot be reached on it.
+Mind that the same hold first does what a press does: it starts the console from off, and forces it
+off after five seconds when running.
+
+As a last resort, if Wi-Fi stays down for ten minutes **while the console is off**, the ESP32 restarts
+itself to come back with a fresh radio. It never does that while the console runs.
+
+| Endpoint | What |
+|----------|------|
+| `GET /rest/net` | current and saved network settings, without the password; `last_error` after a rollback |
+| `POST /rest/net` | `ssid`, `pass`, `open`, `mode=dhcp\|static`, `ip`, `gw`, `mask`, `dns`, `ota`; `reset=1` returns to the compiled defaults |
+| `POST /rest/hotspot` | `ota`; opens the hotspot for ten minutes |
+| `GET /rest/console?url=…` | the `bc250-api` address; empty restores the compiled default |
 
 * A short press when off starts the machine. A short press while running does nothing on purpose:
   shut down in software so the filesystem is clean. Use Shutdown, not Sleep: sleep and hibernation
@@ -47,7 +99,8 @@ The footer's `console …` entry shows the `bc250-api` address; tap it to change
   RUNNING, which needs the sense line connected.
 * The web page and `/rest/on`, `/rest/off`, `/rest/status` do the same over the network. A web off is
   a hard cut. `/rest/status` also carries `console`, the `bc250-api` address the page polls;
-  `/rest/console?url=…` changes it without a reflash.
+  `/rest/console?url=…` changes it without a reflash, and `/rest/net` does the same for Wi-Fi and IP
+  (see Settings above).
 * After a mains outage the machine stays off and waits for a press. To change that, call `psuOn()` at
   the end of `setup()` instead of entering `ST_OFF`.
 * An ESP32 crash or watchdog reset cuts a running machine: the LED goes dark before any code runs.
