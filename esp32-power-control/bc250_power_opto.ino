@@ -46,6 +46,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <Preferences.h>
@@ -153,6 +154,8 @@ const uint32_t SENSE_LOW_HOLD = 10000;  // sense must stay low this long to coun
                                         // (long enough to ride out a warm reboot)
 const uint32_t DEBOUNCE       = 40;     // button debounce
 const uint32_t LONG_PRESS     = 5000;   // hold this long to force power off
+const uint32_t CLICK_GAP      = 450;    // second click within this = double click
+const uint32_t CLICK_HTTP_MS  = 8000;   // the console call gets this long to answer
 const uint32_t MIN_OFF        = 5000;   // dwell in STOPPING so PSU caps drain
 const uint32_t START_TIMEOUT  = 45000;  // give up if the board never comes up
 
@@ -168,6 +171,13 @@ uint32_t btnChangedAt = 0;
 uint32_t btnPressedAt = 0;
 bool     longFired    = false;
 bool     longArmed    = false;   // was the machine running when pressed?
+// Clicks while the console runs go to bc250-api: one click sleeps or wakes it, two clicks
+// shut it down cleanly. Decided on release, so the 5 s and 10 s holds stay what they are.
+uint32_t clickReleasedAt = 0;    // a click is waiting for a possible second one (0: none)
+bool     doubleClick     = false; // the second press arrived in time; act on it
+bool     secondPress     = false; // ...and its release is not a new click
+volatile bool clickBusy  = false; // the console call is in flight (its own task)
+String   clickResult;             // last outcome, in /rest/status "click" for bench checks
 
 // Requests arriving over the web. The loop consumes these flags;
 // hardware is never touched from an HTTP handler.
@@ -585,12 +595,12 @@ void handleRoot() {
 
 void handleStatus() {
   netSeen();
-  char buf[800];
+  char buf[900];
   snprintf(buf, sizeof(buf),
     "{\"state\":\"%s\",\"sense\":%s,\"uptime\":%lu,\"rssi\":%d,"
     "\"heap\":%lu,\"ota\":%s,\"ip\":\"%s\",\"mac\":\"%s\",\"console\":\"%s\","
     "\"ssid\":\"%s\",\"ap\":%s,\"wifi\":%s,\"net_pending\":%lu,"
-    "\"temp\":%.1f,\"btn\":%s,\"presses\":%lu,\"lows\":\"%s\",\"pins\":\"%s\"}",
+    "\"temp\":%.1f,\"btn\":%s,\"presses\":%lu,\"click\":\"%s\",\"lows\":\"%s\",\"pins\":\"%s\"}",
     stateName(state),
     boardAlive() ? "true" : "false",
     (unsigned long)(millis() / 1000),
@@ -607,6 +617,7 @@ void handleStatus() {
     temperatureRead(),
     buttonRaw() == LOW ? "true" : "false",
     (unsigned long)btnPresses,
+    jsonEsc(clickResult).c_str(),
     probeList().c_str(),
     pinLevels().c_str());
   server.send(200, "application/json", buf);
@@ -1119,9 +1130,71 @@ bool buttonDown() {
     longArmed = (state == ST_RUNNING);
     setupFired = false;
     btnPresses++;
+    // Second press soon after a click: a double click, decided on this press.
+    if (clickReleasedAt && now - clickReleasedAt < CLICK_GAP) {
+      clickReleasedAt = 0;
+      doubleClick = true;
+      secondPress = true;
+    }
     return true;
   }
-  return false;                    // released
+  // Released. A short release while the console runs is a click; a hold that
+  // reached LONG_PRESS has already forced it off and is not one.
+  if (secondPress) {
+    secondPress = false;
+  } else if (state == ST_RUNNING && longArmed && !longFired && !setupFired) {
+    clickReleasedAt = now ? now : 1;
+  }
+  return false;
+}
+
+// POST to the console, off the main loop so a slow answer never stalls the
+// state machine or the page. The result is only for the status page.
+void clickTask(void *arg) {
+  const char *path = (const char *)arg;
+  HTTPClient http;
+  http.setConnectTimeout(3000);
+  http.setTimeout(CLICK_HTTP_MS);
+  String url = consoleApi + path;
+  String out;
+  if (http.begin(url)) {
+    int code = http.POST("");
+    if (code > 0) out = String(path) + " " + String(code) + " " + http.getString().substring(0, 80);
+    else          out = String(path) + " " + http.errorToString(code);
+    http.end();
+  } else {
+    out = String(path) + " bad url";
+  }
+  out.replace("\n", " ");
+  Serial.printf("[click] %s\n", out.c_str());
+  clickResult = out;
+  clickBusy = false;
+  vTaskDelete(NULL);
+}
+
+void consolePost(const char *path) {
+  if (WiFi.status() != WL_CONNECTED) { clickResult = String(path) + " no wifi"; return; }
+  if (clickBusy) { clickResult = String(path) + " busy"; return; }
+  clickBusy = true;
+  if (xTaskCreate(clickTask, "click", 6144, (void *)path, 1, NULL) != pdPASS) {
+    clickBusy = false;
+    clickResult = String(path) + " no task";
+  }
+}
+
+// One click while running: sleep or wake. Two clicks: clean shutdown. Both through
+// bc250-api on the console; without it the button only has the 5 s hold.
+void clickTick() {
+  if (state != ST_RUNNING) { doubleClick = false; clickReleasedAt = 0; return; }
+  if (doubleClick) {
+    doubleClick = false;
+    Serial.println("[button] double click: shutdown");
+    consolePost("/api/poweroff");
+  } else if (clickReleasedAt && millis() - clickReleasedAt >= CLICK_GAP) {
+    clickReleasedAt = 0;
+    Serial.println("[button] click: sleep/wake");
+    consolePost("/api/sleep/toggle");
+  }
 }
 
 // Holding the button SETUP_PRESS opens the hotspot for AP_FORCE_MS, whatever the
@@ -1225,6 +1298,7 @@ void loop() {
   wifiTick();
   setupPressTick();
   probeTick();
+  clickTick();
 
   // Arm OTA only while the PSU is off, and only once the radio is up.
   // Reflashing reboots the board and the LED goes dark before any code
@@ -1283,11 +1357,10 @@ void loop() {
       break;
 
     case ST_RUNNING:
-      if (pressed) {
-        // A tap while running is a no-op on purpose: shut the BC-250
-        // down in software instead. Hold 5 s to force it.
-        Serial.println("[button] ignored, shut down in software");
-      }
+      // A press while running does nothing by itself: its release becomes a
+      // click (sleep/wake) or a double click (shutdown), see clickTick.
+      // Hold 5 s to force the PSU off.
+      (void)pressed;
       if (boardAlive()) {
         senseLowSince = 0;
       } else {

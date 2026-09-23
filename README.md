@@ -34,6 +34,18 @@ was built from these instructions alone.
   <img src="docs/images/esp32-gui.png" alt="The ESP32 web page: state, the four power buttons, live console stats and the tuning switches" width="300">
 </p>
 
+## The power button
+
+| Press | Console off | Console running |
+|-------|-------------|-----------------|
+| **1 click** | powers on | sleep, or wake if asleep |
+| **2 clicks** | powers on | clean shutdown |
+| **hold 5 s** | powers on | force off (hard cut) |
+| **hold 10 s** | powers on, then opens the `BC250-AP` hotspot | forces off, then opens the hotspot |
+
+The click actions go through `bc250-api` on the console; the holds are the ESP32 alone.
+[Details](https://lethevimlet.github.io/lethe-bc250/power-page.html#the-button)
+
 ## Quick start
 
 On the BC-250, once Bazzite is installed, paste this and tick what you want. Run the same line on a

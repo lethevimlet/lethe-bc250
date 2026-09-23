@@ -12,6 +12,7 @@ the same options without a display.
   POST /api/tune/reboot            -> `bc250-tune reboot`          (warm reboot, for 8 cores)
   POST /api/tune/restart-session   -> `bc250-tune restart-session` (for a resolution change)
   POST /api/sleep, /api/wake       fake sleep / wake through the BC-250 Sleep plugin's control socket
+  POST /api/sleep/toggle           sleep if awake, wake if asleep (the ESP32's case button uses this)
   POST /api/poweroff               clean shutdown (systemctl poweroff); the ESP32 cuts the PSU once the board is down
   GET  /panel.js                   the console panel the ESP32 page loads and renders (panel.js next to this file
                                    or /usr/local/share/bc250-api/panel.js), so panel changes need no reflash
@@ -35,7 +36,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 PORT = int(os.environ.get("BC250_API_PORT", "8250"))
 TUNE = "/usr/local/bin/bc250-tune"
 PANEL_PATHS = ("/usr/local/share/bc250-api/panel.js", os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel.js"))
@@ -498,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({
                 "service": "bc250-api", "version": VERSION, "uptime_s": int(time.time() - started),
                 "endpoints": ["GET /api/status", "GET /api/tune?refresh=1", "GET /panel.js", "POST /api/tune/set {key,value}",
-                              "POST /api/tune/reboot", "POST /api/tune/restart-session", "POST /api/sleep", "POST /api/wake",
+                              "POST /api/tune/reboot", "POST /api/tune/restart-session", "POST /api/sleep", "POST /api/wake", "POST /api/sleep/toggle",
                               "POST /api/poweroff"],
             })
         if u.path == "/api/status":
@@ -547,9 +548,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "output": "shutting down"})
             subprocess.Popen(["systemctl", "poweroff"], env=CLEAN_ENV)
             return
-        if u.path in ("/api/sleep", "/api/wake"):
+        if u.path in ("/api/sleep", "/api/wake", "/api/sleep/toggle"):
             with action_lock:
-                r, code = sleep_ctl(u.path.rsplit("/", 1)[1])
+                cmd = u.path.rsplit("/", 1)[1]
+                if cmd == "toggle":
+                    cmd = "wake" if sleep_state()["asleep"] else "sleep"
+                r, code = sleep_ctl(cmd)
+                if code == 200:
+                    r["action"] = cmd
             log("sleep ctl", u.path, code)
             return self.send_json(r, code)
         if not tune.available:

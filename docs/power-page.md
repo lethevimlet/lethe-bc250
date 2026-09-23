@@ -5,6 +5,22 @@ parent: Soft power control
 ---
 
 # Behaviour, web page, troubleshooting
+## The button
+
+| Press | Console off | Console running |
+|-------|-------------|-----------------|
+| **1 click** | powers on | **sleep**, or wake if asleep (through `bc250-api`) |
+| **2 clicks** | powers on | **clean shutdown** (through `bc250-api`; the ESP32 cuts the PSU once the board is down) |
+| **hold 5 s** | powers on | **force off**: hard cut of the PSU, only when nothing else works |
+| **hold 10 s** | powers on, then opens the `BC250-AP` hotspot | forces off at 5 s, then opens the hotspot |
+
+A click is a press shorter than five seconds; two clicks are two presses within half a second. The
+click and double-click actions need `bc250-api` on the console: without it, or with the console
+unreachable on the network, they do nothing (the footer's `click` field in `/rest/status` says why), and
+only the 5 s hold is left. The Sleep plugin must be installed for sleep; a shutdown is the same clean
+`systemctl poweroff` as the page's **Shut down** button. Sleep and hibernation do not work on the BC-250
+([Things we learned](lessons.md)), so a sleeping board keeps the PSU on: that is what the fake sleep is for.
+
 ## Behaviour and the web page
 
 <p align="center">
@@ -114,14 +130,11 @@ hotspot. It never restarts while the console runs.
 | `POST /rest/hotspot` | `ota`; opens the hotspot for five minutes (`secs=30…300`), `off=1` closes it |
 | `GET /rest/console?url=…` | the `bc250-api` address; empty restores the compiled default |
 
-* A short press when off starts the machine. A short press while running does nothing on purpose:
-  shut down in software so the filesystem is clean. Use Shutdown, not Sleep: sleep and hibernation
-  do not work on the BC-250 ([Things we learned](lessons.md)), and a sleeping board would leave the PSU on with no way to wake.
-* Hold the button five seconds to force the PSU off. This only arms once the firmware has reached
-  RUNNING, which needs the sense line connected.
-* Hold the button ten seconds to open the `BC250-AP` hotspot for five minutes (see Hotspot fallback
-  above). The hold does the other things on its way: from off it has already started the console, and
-  a running console is forced off at five seconds.
+* The button does what [the table at the top](#the-button) says: a click powers on, or sleeps and
+  wakes a running console; two clicks shut it down cleanly; a 5 s hold forces the PSU off (this only
+  arms once the firmware has reached RUNNING, which needs the sense line connected); a 10 s hold opens
+  the `BC250-AP` hotspot for five minutes (see Hotspot fallback above), after doing the other things on
+  its way.
 * The web page and `/rest/on`, `/rest/off`, `/rest/status` do the same over the network. A web off is
   a hard cut. `/rest/status` also carries `console`, the `bc250-api` address the page polls;
   `/rest/console?url=…` changes it without a reflash, and `/rest/net` does the same for Wi-Fi and IP

@@ -14,6 +14,7 @@ POST /api/tune/set               {"key":"cu","value":"40"}  → bc250-tune set c
 POST /api/tune/reboot            warm reboot (8 cores)
 POST /api/tune/restart-session   gaming session restart (resolution)
 POST /api/sleep, /api/wake       fake sleep / wake (through the BC-250 Sleep plugin's control socket)
+POST /api/sleep/toggle           sleep if awake, wake if asleep (one click of the case button)
 ```
 
 ```bash
