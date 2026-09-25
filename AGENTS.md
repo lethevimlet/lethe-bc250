@@ -102,6 +102,9 @@ depend on each other.
   remembers a single nonce, so two open browsers would re-challenge each other on every request and
   each miss would count as a wrong password. `/rest/auth` with the OTA password bypasses the gate on
   purpose (the way back from a forgotten password); keep it the only such path.
+  No other save asks for a password (the owner's choice): the OTA password is asked only by
+  `/rest/otapass`, which changes it. It lives in NVS (`ota_pass`) once changed; `OTA_PASS` in the sketch is
+  the default, and `flash.sh usb --erase` (board option `EraseFlash=all`) is the only way back to it.
 * **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
   compile because a stale `.bin` was still there.
 * **systemd ordering cycles.** `bc250-tune.service` is `After=multi-user.target` and wanted by it. A

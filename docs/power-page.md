@@ -58,7 +58,7 @@ The footer's `console …` entry shows the `bc250-api` address; tapping it opens
 ## Settings: Wi-Fi, IP address, console address, login
 
 <p align="center">
-  <img src="images/esp32-settings.png" alt="The Settings section of the ESP32 page: Wi-Fi name and password, DHCP or static IP with address, gateway, mask and DNS, the OTA password to confirm, a box for the bc250-api address, and the Access box with the login checkbox" width="300">
+  <img src="images/esp32-settings.png" alt="The Settings section of the ESP32 page: Wi-Fi name and password, DHCP or static IP with address, gateway, mask and DNS, the OTA password to confirm, a box for the bc250-api address, the Access box with the login checkbox, and the OTA password box" width="300">
 </p>
 
 Everything that used to need a reflash lives in one collapsible **Settings** section at the bottom of
@@ -73,8 +73,9 @@ kept in the ESP32's flash and wins over them.
 * **Console (bc250-api)**: the address the page polls for stats and switches, in its own box with
   its own save button. No password needed for this one.
 
-Saving Wi-Fi or IP settings asks for the **OTA password**, because losing them can lock you out. The
-read endpoint never returns the Wi-Fi password.
+None of the saves asks for a password: on your own network the page is yours, and with the login
+(below) on, being logged in is the protection. The one exception is changing the OTA password itself.
+The read endpoint never returns the Wi-Fi password.
 
 **A change cannot cut a running console.** It is applied without restarting the ESP32, so the PSU
 stays latched. It is also only made permanent once it has proven itself:
@@ -124,13 +125,20 @@ itself to come back with a fresh radio; that restart does not count as a power-u
 hotspot. It never restarts while the console runs.
 
 **Access: a login for the page.** Off by default, so at home nothing asks. The **Access** block under
-Settings turns it on with a username and a password (8 to 63 characters); turning it on needs the OTA
-password, like every change that could lock you out, and once on, being logged in is enough to change
-the username or password or to turn it off again. With the login on, the page and every `/rest/…`
+Settings turns it on with a username and a password (8 to 63 characters); once on, being logged in is
+what it takes to change them or to turn it off again. With the login on, the page and every `/rest/…`
 call (status, the power buttons, the settings) ask for it; the browser shows its own login box, and
 the footer says `login on`. Five wrong logins lock the page for a minute, for everyone. A forgotten
 password is undone from your own network with the OTA password:
 `curl -X POST http://<esp32-ip>/rest/auth -d on=0 -d ota=<OTA password>`.
+
+**OTA password.** The password `flash.sh ota` uses for updates over the air, the password of the
+`BC250-AP` hotspot, and the way back from a forgotten login. It starts as the one compiled into the
+firmware and can be changed from the **OTA password** box under Settings, which is the one save that
+asks for the current one. From then on it lives in the ESP32's flash; put the new one into
+`config.local` on the PC you update from, or the next `flash.sh ota` is refused. If it is lost, only a
+USB flash with `flash.sh usb --erase` (which also wipes the Wi-Fi, IP, console address and login set
+from the page) puts the compiled one back.
 
 {: .warning }
 > This is what lets you forward the page's port (80) through your router so the console can be
@@ -146,11 +154,12 @@ password is undone from your own network with the OTA password:
 | Endpoint | What |
 |----------|------|
 | `GET /rest/net` | current and saved network settings, without the password; `last_error` after a rollback |
-| `POST /rest/net` | `ssid`, `pass`, `open`, `mode=dhcp\|static`, `ip`, `gw`, `mask`, `dns`, `ota`; `reset=1` returns to the compiled defaults |
-| `POST /rest/hotspot` | `ota`; opens the hotspot for five minutes (`secs=30…300`), `off=1` closes it |
+| `POST /rest/net` | `ssid`, `pass`, `open`, `mode=dhcp\|static`, `ip`, `gw`, `mask`, `dns`; `reset=1` returns to the compiled defaults |
+| `POST /rest/hotspot` | opens the hotspot for five minutes (`secs=30…300`), `off=1` closes it |
 | `GET /rest/console?url=…` | the `bc250-api` address; empty restores the compiled default |
 | `GET /rest/auth` | whether the login is on, and the username |
-| `POST /rest/auth` | `on=0\|1`, `user`, `pass` (empty keeps the current one), `ota` (needed to turn it on, and gets past a forgotten login) |
+| `POST /rest/auth` | `on=0\|1`, `user`, `pass` (empty keeps the current one); `ota` gets past a forgotten login |
+| `POST /rest/otapass` | `cur`, `pass`: changes the OTA password (also the hotspot's) |
 
 * The button does what [the table at the top](#the-button) says: a click powers on, or sleeps and
   wakes a running console; two clicks shut it down cleanly; a 5 s hold forces the PSU off (this only

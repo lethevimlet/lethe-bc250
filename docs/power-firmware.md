@@ -12,6 +12,7 @@ The scripted way, from a laptop or desktop (Linux or macOS), needs no Arduino ID
 ```bash
 git clone https://github.com/lethevimlet/lethe-bc250 && cd lethe-bc250
 ./esp32-power-control/flash.sh usb        # first flash over USB; asks for Wi-Fi, OTA password, console address once
+./esp32-power-control/flash.sh usb --erase  # the same, wiping the ESP32 first: forgets everything set from the page, OTA password included
 ./esp32-power-control/flash.sh ota        # later updates over Wi-Fi; refuses unless the console is OFF and OTA is armed
 ```
 

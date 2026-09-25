@@ -5,7 +5,8 @@
 #
 #   ./flash.sh            interactive: build, then pick USB upload / OTA update / nothing
 #   ./flash.sh build      build only
-#   ./flash.sh usb [PORT] build and upload over USB (first flash)
+#   ./flash.sh usb [PORT] [--erase]  build and upload over USB (first flash); --erase wipes the
+#                        ESP32 first: settings made from the page (Wi-Fi, IP, OTA password, login) are gone
 #   ./flash.sh ota [HOST] build and update over the air (console must be OFF, "OTA ready")
 #
 # Installs arduino-cli + the ESP32 core under your home (no root). Your Wi-Fi/OTA values are asked
@@ -122,7 +123,9 @@ ports() {
     ls /dev/ttyACM* /dev/ttyUSB* /dev/cu.usbmodem* /dev/cu.usbserial* 2>/dev/null || true
 }
 usb() {
-    local port=${1:-}
+    local port=${1:-} erase=0
+    [ "${2:-}" = --erase ] && erase=1
+    [ "$port" = --erase ] && { erase=1; port=""; }
     warn "USB flashing: the ESP32 must NOT be wired to the PSU's +5VSB while on USB (docs: Firmware, flashing and OTA). Power it from the USB cable only."
     if [ -z "$port" ]; then
         local list; list=$(ports)
@@ -130,8 +133,10 @@ usb() {
         if [ "$(echo "$list" | wc -l)" -eq 1 ]; then port=$list
         else echo "$list" | nl; read -r -p "port number: " n; port=$(echo "$list" | sed -n "${n}p"); fi
     fi
-    say "Uploading over $port"
-    if ! acli upload --fqbn "$FQBN" -p "$port" --input-dir "$OUT"; then
+    local fqbn=$FQBN
+    if [ $erase = 1 ]; then fqbn="$FQBN,EraseFlash=all"; say "Uploading over $port, erasing the whole flash first (page settings and OTA password go back to the compiled defaults)"
+    else say "Uploading over $port"; fi
+    if ! acli upload --fqbn "$fqbn" -p "$port" --input-dir "$OUT"; then
         [ "$(uname -s)" = Linux ] && warn "permission denied? add yourself to the serial group: sudo usermod -aG dialout \$USER (or uucp on Arch), then log out and in"
         die "upload failed"
     fi
@@ -167,7 +172,7 @@ load_conf
 build
 case "$action" in
     build) ;;
-    usb) usb "$arg" ;;
+    usb) usb "$arg" "${3:-}" ;;
     ota) ota "$arg" ;;
     "")
         echo; echo "  1) upload over USB (first flash)"; echo "  2) update over the air (console must be OFF)"; echo "  3) nothing, the binary is built"

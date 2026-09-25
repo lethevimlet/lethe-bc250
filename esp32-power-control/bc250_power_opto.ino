@@ -139,6 +139,7 @@ uint32_t wifiUpSince   = 0;
 const char *OTA_PASS = "CHANGE_ME";        // Never ship empty: this
                                            // firmware owns the power path.
 bool otaEnabled = false;                   // only armed while state == ST_OFF
+String otaPass;                            // OTA_PASS, or what the page set (NVS "ota_pass")
 
 // ---- Login (off by default) ------------------------------------
 // For a page that is reachable from outside the home network. HTTP digest, so the
@@ -393,8 +394,6 @@ powers down and the PSU is cut once the board is off.</p>
 <label for="smask">Subnet mask</label><input id="smask" type="text" inputmode="decimal" placeholder="255.255.255.0">
 <label for="sdns">DNS (optional, the gateway if empty)</label><input id="sdns" type="text" inputmode="decimal">
 </div>
-<label for="sota">OTA password, to confirm the change</label>
-<input id="sota" type="password" autocomplete="off">
 <button class="save" id="netsave" type="button">Save Wi-Fi and IP</button>
 <div class="msg" id="netmsg"></div>
 <p class="hint">Applied without restarting the ESP32, so a running console is not affected. If it cannot
@@ -422,8 +421,6 @@ and so does the link below. It is kept short because hotspot mode runs the board
 <label for="apass2">Password again</label>
 <input id="apass2" type="password" maxlength="63" autocomplete="new-password">
 </div>
-<div id="aota"><label for="aotap">OTA password, to turn the login on</label>
-<input id="aotap" type="password" autocomplete="off"></div>
 <button class="save" id="asave" type="button">Save access</button>
 <div class="msg" id="amsg"></div>
 <p class="hint">Off by default: at home nothing asks. Turn it on before forwarding this page's port
@@ -431,6 +428,19 @@ through your router. The login is HTTP digest, so the password itself never trav
 not encrypted (the ESP32 does no HTTPS): a VPN into your home is the better way in. Five wrong logins
 lock the page for a minute. Forgotten? From your own network: <b>curl -X POST http:&#47;&#47;&lt;esp32-ip&gt;/rest/auth
 -d on=0 -d ota=&lt;OTA password&gt;</b>. Never forward port 8250 (bc250-api) or 3232 (OTA).</p>
+</div>
+<div class="grp"><h3>OTA password</h3>
+<label for="ocur">Current OTA password</label>
+<input id="ocur" type="password" autocomplete="off">
+<label for="onew">New OTA password</label>
+<input id="onew" type="password" maxlength="63" autocomplete="new-password">
+<label for="onew2">New OTA password again</label>
+<input id="onew2" type="password" maxlength="63" autocomplete="new-password">
+<button class="save" id="otasave" type="button">Change OTA password</button>
+<div class="msg" id="otamsg"></div>
+<p class="hint">The password for firmware updates over the air, for the <b>BC250-AP</b> hotspot, and the
+way back in when the login above is forgotten. Put the new one into config.local on the PC you update
+from. If it is lost, only a USB flash with <b>flash.sh usb --erase</b> resets it.</p>
 </div>
 </details>
 <div class="net"><span id="rssi"></span><span id="ota"></span><span id="sense"></span>
@@ -495,7 +505,6 @@ async function loadNet(){
 $('set').addEventListener('toggle',()=>{if($('set').open){loadNet();loadAuth();$('capi2').value=api||''}});
 let authWas=false;
 function abox(){const on=$('aon').checked;$('abox').style.display=on?'':'none';
- $('aota').style.display=(on&&!authWas)?'':'none';
  $('apass').placeholder=authWas?'leave empty to keep the current one':'';$('apass2').placeholder=$('apass').placeholder}
 $('aon').onchange=abox;
 async function loadAuth(){
@@ -504,10 +513,10 @@ async function loadAuth(){
 $('asave').onclick=async()=>{const m=$('amsg');
  if($('aon').checked&&$('apass').value!=$('apass2').value){m.textContent='The two passwords differ.';return}
  const b=new URLSearchParams();b.set('on',$('aon').checked?'1':'0');b.set('user',$('auser').value.trim());
- b.set('pass',$('apass').value);b.set('ota',$('aotap').value);m.textContent='Saving…';
+ b.set('pass',$('apass').value);m.textContent='Saving…';
  try{const r=await fetch('/rest/auth',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()}),j=await r.json();
   if(!j.ok){m.textContent='Not saved: '+(j.error||'error');return}
-  $('apass').value=$('apass2').value=$('aotap').value='';
+  $('apass').value=$('apass2').value='';
   if(j.on&&j.changed){m.textContent='Saved. The page will now ask you to log in.';setTimeout(()=>location.reload(),1200)}
   else{m.textContent=j.on?'Saved.':'Saved. The page no longer asks for a login.';loadAuth();poll()}
  }catch(e){m.textContent='No answer from the ESP32.'}};
@@ -541,22 +550,29 @@ async function postNet(body){
  try{const r=await fetch('/rest/net',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
    body:body.toString()}),j=await r.json();
   if(!j.ok){m.textContent='Not saved: '+(j.error||'error');return}
-  $('sota').value='';$('wpass').value='';watchNet(j.ip,j.confirm_s);
+  $('wpass').value='';watchNet(j.ip,j.confirm_s);
  }catch(e){m.textContent='No answer from the ESP32.'}
 }
 $('netsave').onclick=()=>{const b=new URLSearchParams();
  b.set('ssid',$('ssid').value.trim());b.set('pass',$('wpass').value);b.set('open',$('wopen').checked?'1':'0');
  b.set('mode',statMode?'static':'dhcp');b.set('ip',$('sip').value.trim());b.set('gw',$('sgw').value.trim());
- b.set('mask',$('smask').value.trim());b.set('dns',$('sdns').value.trim());b.set('ota',$('sota').value);postNet(b)};
-$('hotspot').onclick=async e=>{e.preventDefault();const m=$('netmsg'),b=new URLSearchParams();b.set('ota',$('sota').value);
+ b.set('mask',$('smask').value.trim());b.set('dns',$('sdns').value.trim());postNet(b)};
+$('hotspot').onclick=async e=>{e.preventDefault();const m=$('netmsg'),b=new URLSearchParams();
  if(apNow)b.set('off','1');
  try{const r=await fetch('/rest/hotspot',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()}),j=await r.json();
-  m.textContent=!j.ok?'Not done: '+(j.error||'error')+' (enter the OTA password above)':
+  m.textContent=!j.ok?'Not done: '+(j.error||'error'):
    j.open?'Hotspot '+j.ssid+' is open for '+j.minutes+' minutes. Wi-Fi stays connected.':'Hotspot closed.';poll()}
  catch(x){m.textContent='No answer from the ESP32.'}};
 $('netreset').onclick=e=>{e.preventDefault();
  if(!confirm('Go back to the Wi-Fi and IP settings compiled into the firmware?'))return;
- const b=new URLSearchParams();b.set('reset','1');b.set('ota',$('sota').value);postNet(b)};
+ const b=new URLSearchParams();b.set('reset','1');postNet(b)};
+$('otasave').onclick=async()=>{const m=$('otamsg');
+ if($('onew').value!=$('onew2').value){m.textContent='The two new passwords differ.';return}
+ const b=new URLSearchParams();b.set('cur',$('ocur').value);b.set('pass',$('onew').value);m.textContent='Saving…';
+ try{const r=await fetch('/rest/otapass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()}),j=await r.json();
+  m.textContent=j.ok?'Changed. Use it for the next update and in config.local.':'Not changed: '+(j.error||'error');
+  if(j.ok)$('ocur').value=$('onew').value=$('onew2').value='';
+ }catch(e){m.textContent='No answer from the ESP32.'}};
 $('capi').onclick=editConsole;
 $('chg').onclick=e=>{e.preventDefault();editConsole()};
 $('retry').onclick=e=>{e.preventDefault();$('cst').textContent='connecting';cpoll()};
@@ -651,6 +667,7 @@ uint32_t netPendingLeft() {
 }
 
 void netError(const char *msg);
+bool cleanText(const String &s);
 
 String md5(const String &s) {
   MD5Builder m; m.begin(); m.add(s); m.calculate(); return m.toString();
@@ -731,6 +748,34 @@ bool authGate() {
   return false;
 }
 
+void otaLoad() {
+  prefs.begin("bc250", true);
+  otaPass = prefs.getString("ota_pass", OTA_PASS);
+  prefs.end();
+}
+
+// POST /rest/otapass: cur, pass. The one save that asks for the current OTA password,
+// because this password is what an update, the hotspot and a forgotten login fall back
+// on. It moves to NVS: the compiled one is only the default, and flash.sh usb --erase
+// is the way back when it is lost.
+void handleOtaPass() {
+  if (!authGate()) return;
+  if (server.arg("cur") != otaPass) {
+    delay(500);
+    server.send(403, "application/json", "{\"ok\":false,\"error\":\"wrong current OTA password\"}");
+    return;
+  }
+  String np = server.arg("pass");
+  if (np.length() < 8 || np.length() > 63 || !cleanText(np)) { netError("new password must be 8 to 63 plain characters, no quotes or colons"); return; }
+  otaPass = np;
+  prefs.begin("bc250", false);
+  prefs.putString("ota_pass", otaPass);
+  prefs.end();
+  ArduinoOTA.setPassword(otaPass.c_str());     // applies to the next update, armed or not
+  Serial.println("[ota] password changed from the page");
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void authLoad() {
   prefs.begin("bc250", true);
   authOn   = prefs.getBool("auth_on", false);
@@ -758,18 +803,12 @@ void handleAuthGet() {
   server.send(200, "application/json", String("{\"on\":") + (authOn ? "true" : "false") + ",\"user\":\"" + jsonEsc(authUser) + "\"}");
 }
 
-// POST /rest/auth: on=0|1, user, pass (empty = keep, when already on), ota.
-// Turning it on needs the OTA password (a change that can lock the owner out, like
-// /rest/net); once on, being logged in is enough. The OTA password also gets past the
-// login here, which is the way back in for a forgotten password: on=0 with ota=... .
+// POST /rest/auth: on=0|1, user, pass (empty = keep, when already on). No password
+// to save; with the login on, being logged in is the protection. The OTA password
+// gets past the login here, which is the way back in for a forgotten one: on=0 with ota=... .
 void handleAuthPost() {
-  bool otaOk = strcmp(server.arg("ota").c_str(), OTA_PASS) == 0;
+  bool otaOk = server.hasArg("ota") && server.arg("ota") == otaPass;
   if (!otaOk && !authGate()) return;
-  if (!authOn && server.arg("on") == "1" && !otaOk) {
-    delay(300);
-    server.send(403, "application/json", "{\"ok\":false,\"error\":\"the OTA password is needed to turn the login on\"}");
-    return;
-  }
   bool on = server.arg("on") == "1";
   String user = server.arg("user"); user.trim();
   String pass = server.arg("pass");
@@ -836,16 +875,11 @@ void loadConsoleApi() {
 }
 
 // GET /rest/console?url=http://<console-ip>:8250   ("" = back to the compiled default)
-// POST /rest/hotspot (ota=...): open the hotspot for AP_FORCE_MS even though Wi-Fi works,
+// POST /rest/hotspot: open the hotspot for AP_FORCE_MS even though Wi-Fi works,
 // e.g. to check it from a phone. Wi-Fi stays connected alongside it.
 void handleHotspot() {
   if (!authGate()) return;
   netSeen();
-  if (strcmp(server.arg("ota").c_str(), OTA_PASS) != 0) {
-    delay(500);
-    server.send(403, "application/json", "{\"ok\":false,\"error\":\"wrong OTA password\"}");
-    return;
-  }
   if (server.arg("off") == "1") {            // close it now
     apForceUntil = 0;
     apStop("closed on request", false);
@@ -1056,7 +1090,7 @@ void apStart(const char *why) {
   WiFi.setAutoReconnect(false);             // rejoin attempts are paced by wifiTick()
   // Low-power access point: one client, sparse beacons, minimum transmit power. The receiver
   // still has to stay on, which is where most of the heat comes from.
-  bool ok = WiFi.softAP(AP_SSID, strlen(OTA_PASS) >= 8 ? OTA_PASS : "bc250setup", 1, 0, 1);
+  bool ok = WiFi.softAP(AP_SSID, otaPass.length() >= 8 ? otaPass.c_str() : "bc250setup", 1, 0, 1);
   wifi_config_t conf;
   if (esp_wifi_get_config(WIFI_IF_AP, &conf) == ESP_OK) {
     conf.ap.beacon_interval = AP_BEACON_MS;
@@ -1157,8 +1191,8 @@ void wifiTick() {
 }
 
 // ---- /rest/net: Wi-Fi and IP settings ---------------------------
-// GET shows them (never the password). POST changes them and needs the
-// OTA password: losing these settings can lock the owner out.
+// GET shows them (never the password). POST changes them; a change that does not
+// work is rolled back (below), which is the protection against locking oneself out.
 void handleNetGet() {
   if (!authGate()) return;
   netSeen();
@@ -1179,11 +1213,6 @@ void netError(const char *msg) {
 
 void handleNetPost() {
   if (!authGate()) return;
-  if (strcmp(server.arg("ota").c_str(), OTA_PASS) != 0) {
-    delay(500);                                  // slows guessing; the power loop tolerates it
-    server.send(403, "application/json", "{\"ok\":false,\"error\":\"wrong OTA password\"}");
-    return;
-  }
   if (netPending || netApplyAt) { netError("a change is still being tried, wait for it"); return; }
   NetCfg n = netCur;
   bool reset = server.arg("reset") == "1";
@@ -1222,7 +1251,7 @@ void handleNetPost() {
 // Callbacks only. Arming happens in the loop, gated on ST_OFF.
 void otaSetup() {
   ArduinoOTA.setHostname(MDNS_NAME);
-  ArduinoOTA.setPassword(OTA_PASS);
+  ArduinoOTA.setPassword(otaPass.c_str());
 
   ArduinoOTA.onStart([]() {
     // Belt and braces: refuse mid-flight if the machine came up between
@@ -1282,6 +1311,7 @@ void setup() {
   healMagic = 0;
 
   loadConsoleApi();
+  otaLoad();
   authLoad();
   netLoad();
   WiFi.onEvent(onWifiEvent);
@@ -1298,6 +1328,7 @@ void setup() {
   server.on("/rest/hotspot", HTTP_POST, handleHotspot);
   server.on("/rest/auth", HTTP_GET,  handleAuthGet);
   server.on("/rest/auth", HTTP_POST, handleAuthPost);
+  server.on("/rest/otapass", HTTP_POST, handleOtaPass);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("[web] server up on port 80");
