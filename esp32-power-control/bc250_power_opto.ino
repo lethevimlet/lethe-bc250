@@ -326,6 +326,10 @@ button:disabled{opacity:.38;cursor:not-allowed}
 .grp input[type=text],.grp input[type=password]{width:100%;min-height:42px;padding:8px 10px;border:1px solid #2b3039;
  border-radius:9px;background:#14161a;color:#e6e8eb;font:inherit;font-size:.9em}
 .grp input[type=checkbox]{width:18px;height:18px;flex:none}
+.pw{position:relative}.pw input{padding-right:46px}
+.pw button{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:38px;min-height:34px;
+ padding:0;background:transparent;color:#8b929c;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.pw button:hover{background:#2b3039;color:#e6e8eb}
 .seg2{display:flex;background:#14161a;border-radius:9px;padding:3px;gap:3px;margin-top:6px}
 .seg2 button{min-height:38px;padding:6px 8px;background:transparent;color:#8b929c;font-size:.85em}
 .seg2 button.sel{background:#3a4150;color:#fff}
@@ -581,6 +585,16 @@ $('otasave').onclick=async()=>{const m=$('otamsg');
   m.textContent=j.ok?'Changed. Use it for the next update and in config.local.':'Not changed: '+(j.error||'error');
   if(j.ok)$('ocur').value=$('onew').value=$('onew2').value='';
  }catch(e){m.textContent='No answer from the ESP32.'}};
+/* Every password field gets a show/hide eye: typos in a password you cannot see are the usual
+   way to lock yourself out. */
+document.querySelectorAll('input[type=password]').forEach(i=>{
+ const w=document.createElement('div');w.className='pw';i.parentNode.insertBefore(w,i);w.appendChild(i);
+ const b=document.createElement('button');b.type='button';b.title='Show';b.setAttribute('aria-label','Show password');
+ const eye=off=>'<svg viewBox=\'0 0 24 24\' width=\'20\' height=\'20\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><path d=\'M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z\'/><circle cx=\'12\' cy=\'12\' r=\'3\'/>'+(off?'<path d=\'M3 3l18 18\'/>':'')+'</svg>';
+ b.innerHTML=eye(false);
+ b.onclick=()=>{const show=i.type=='password';i.type=show?'text':'password';b.innerHTML=eye(show);
+  b.title=show?'Hide':'Show';b.setAttribute('aria-label',b.title+' password');i.focus()};
+ w.appendChild(b)});
 $('capi').onclick=editConsole;
 $('chg').onclick=e=>{e.preventDefault();editConsole()};
 $('retry').onclick=e=>{e.preventDefault();$('cst').textContent='connecting';cpoll()};
