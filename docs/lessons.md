@@ -40,6 +40,16 @@ nav_order: 11
   power-cycle it (the root ports have no power switching and the hub's ganged switching never drops
   VBUS). On one of the board's own USB 2.0 ports (the OHCI controller) it survives warm reboots. This
   matters more than it sounds: with `CORES_AUTO_REBOOT` every power-on ends in a warm reboot.
+* **A Logitech receiver keyboard shows a battery at "<1 %", and Steam believes it.** The kernel's
+  `hid-logitech-hidpp` driver adds a `hidpp_battery_N` power supply for the keyboard and mouse behind a
+  Logitech Nano/Unifying receiver (`046d:c534` here). For a plain keyboard it never reads anything
+  (`capacity` empty, level `Unknown`), and since it is the only battery on the box Steam's battery
+  manager takes it for the system's and shows the low-battery state that comes with it. The driver
+  adds nothing else a keyboard needs: blacklist it and the devices bind to `hid-generic` with the same
+  keys. `printf 'blacklist hid_logitech_hidpp\ninstall hid_logitech_hidpp /bin/false\n' | sudo tee
+  /etc/modprobe.d/bc250-no-hidpp.conf`, then `sudo modprobe -r hid_logitech_hidpp` and re-plug the
+  receiver (or `echo <hid id> | sudo tee /sys/bus/hid/drivers_probe` for each device under
+  `/sys/bus/hid/devices/`). `ls /sys/class/power_supply/` should then be empty on a BC-250.
 * **The image ships no VRAM tool.** `bc250memcfg` writing the split into CMOS is the way on the stock
   BIOS; the alternative is a modded BIOS.
 * **40 CU and 8 cores are a silicon lottery.** They work on this board; they will not work on every

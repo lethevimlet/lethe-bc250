@@ -131,6 +131,10 @@ depend on each other.
   `status --json` carries `fan.sensor` (`ok` / `no-driver` / `no-chip`), the fan daemon is not started,
   the panel and the plugin say why. Never hardcode `fan2` or a platform path; use the first
   spinning tach of whatever nct668x hwmon exists.
+* **A stray `power_supply` entry becomes "the battery" for Steam.** A Logitech receiver keyboard's
+  `hid-logitech-hidpp` battery (reads nothing, shows `<1 %`) did it on one console; the fix is a
+  modprobe blacklist (`docs/lessons.md`). If a stutter or low-battery report ever comes with
+  `/sys/class/power_supply/` non-empty on a BC-250, look there first.
 * **BIOS fan mode.** In *Full Speed* the EC ignores every PWM write; nothing in software can tell
   except that the rpm never moves. Fans that never see the PWM wire behave the same.
 * **`curl | bash` reads the script from stdin.** bash executes a piped script command by command, so
