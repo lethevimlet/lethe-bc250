@@ -105,6 +105,10 @@ depend on each other.
   No other save asks for a password (the owner's choice): the OTA password is asked only by
   `/rest/otapass`, which changes it. It lives in NVS (`ota_pass`) once changed; `OTA_PASS` in the sketch is
   the default, and `flash.sh usb --erase` (board option `EraseFlash=all`) is the only way back to it.
+  Wrong passwords are counted per client address (`guessers[]`), never globally and never with a
+  `delay()`: a global lock or a global rate is a denial of service from the internet, and a delay
+  stalls the loop (button, state machine) for every guess. The gateway address is exempt (a router
+  that masquerades forwarded traffic shows every outside client as the gateway).
 * **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
   compile because a stale `.bin` was still there.
 * **systemd ordering cycles.** `bc250-tune.service` is `After=multi-user.target` and wanted by it. A

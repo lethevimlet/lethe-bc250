@@ -128,7 +128,11 @@ hotspot. It never restarts while the console runs.
 Settings turns it on with a username and a password (8 to 63 characters); once on, being logged in is
 what it takes to change them or to turn it off again. With the login on, the page and every `/rest/…`
 call (status, the power buttons, the settings) ask for it; the browser shows its own login box, and
-the footer says `login on`. Five wrong logins lock the page for a minute, for everyone. A forgotten
+the footer says `login on`. Five wrong passwords from one address block that address for a minute,
+and only that one: a guesser on the internet cannot lock you out, and through a port forward the
+address seen is the guesser's own. (A router that masquerades forwarded traffic shows everyone
+outside as the gateway; that address is never blocked, so nobody is shut out, and the password's
+strength is the protection there.) A forgotten
 password is undone from your own network with the OTA password:
 `curl -X POST http://<esp32-ip>/rest/auth -d on=0 -d ota=<OTA password>`.
 
@@ -136,7 +140,9 @@ password is undone from your own network with the OTA password:
 `BC250-AP` hotspot, and the way back from a forgotten login. It starts as the one compiled into the
 firmware and can be changed from the **OTA password** box under Settings, which is the one save that
 asks for the current one. From then on it lives in the ESP32's flash; put the new one into
-`config.local` on the PC you update from, or the next `flash.sh ota` is refused. If it is lost, only a
+`config.local` on the PC you update from, or the next `flash.sh ota` is refused. With the login on,
+`flash.sh ota` also needs `WEB_LOGIN=user:pass` in `config.local` to read the ESP32's state before
+the update. If the OTA password is lost, only a
 USB flash with `flash.sh usb --erase` (which also wipes the Wi-Fi, IP, console address and login set
 from the page) puts the compiled one back.
 
@@ -145,7 +151,7 @@ from the page) puts the compiled one back.
 > powered from anywhere, and it is a lock, not a vault. The login is HTTP digest: the password itself
 > never travels, but nothing else is encrypted, since the ESP32 does no HTTPS: what the page shows
 > (state, addresses, the console's stats) is readable on the way, and a forwarded port is a target
-> for guessing, which the lock-out only slows. A VPN into your home (WireGuard on the router,
+> for guessing, which the per-address block only slows. A VPN into your home (WireGuard on the router,
 > Tailscale) is the better way to reach it, with no login needed. If you forward anyway: only port
 > 80 of the ESP32, never 8250 (`bc250-api` has no login and takes tune settings and shutdowns), never
 > 3232 (OTA), and never the console itself. The console panel on the page will not load from

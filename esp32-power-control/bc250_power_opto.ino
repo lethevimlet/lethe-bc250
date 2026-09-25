@@ -151,13 +151,21 @@ String otaPass;                            // OTA_PASS, or what the page set (NV
 // password. Nonces are kept in a short ring instead, and only a wrong response to a
 // nonce we issued counts as a failed login.
 const char    *AUTH_REALM     = "BC250";
-const uint8_t  AUTH_MAX_FAILS = 5;         // then AUTH_LOCK_MS of 429 for everyone
-const uint32_t AUTH_LOCK_MS   = 60000;
+// Wrong passwords are counted per client address, and only that address is blocked (429) for
+// AUTH_BLOCK_MS after AUTH_MAX_FAILS of them. A single global lock, or a global rate, would be a
+// denial of service: anyone on the internet could keep guessing to keep the owner out. A wrong
+// attempt also costs no delay(): that would stall the whole loop, button and state machine
+// included, for every guess. Behind a port forward the address seen is the guesser's public
+// one. A router that masquerades forwarded traffic (or NAT loopback) shows everyone outside as
+// the gateway instead; blocking that would block them all, so the gateway is never blocked.
+const uint8_t  AUTH_MAX_FAILS = 5;
+const uint32_t AUTH_BLOCK_MS  = 60000;
+const uint32_t AUTH_FORGET_MS = 600000;    // a count with no new attempt this long is dropped
+struct Guesser { IPAddress ip; uint8_t fails; uint32_t lastAt; uint32_t blockUntil; };
+Guesser  guessers[8];
 const uint32_t NONCE_LIFE_MS  = 600000;    // a browser reuses a nonce until told it is stale
 bool     authOn = false;
 String   authUser, authPass;
-uint8_t  authFails = 0;
-uint32_t authLockUntil = 0;
 enum AuthRes { AUTH_OK, AUTH_NONE, AUTH_STALE, AUTH_BAD };   // up here: the sketch generator puts prototypes before this point
 struct Nonce { String v; uint32_t at; };
 Nonce    nonces[4];
@@ -726,24 +734,60 @@ AuthRes authCheck() {
   return want.equalsIgnoreCase(dparam(h, "response")) ? AUTH_OK : AUTH_BAD;
 }
 
+Guesser *guesser(bool create) {
+  IPAddress ip = server.client().remoteIP();
+  uint32_t now = millis();
+  Guesser *oldest = &guessers[0];
+  for (auto &g : guessers) {
+    if (g.fails || g.blockUntil) {
+      if (g.ip == ip) return &g;
+      if ((int32_t)(now - g.lastAt) > (int32_t)AUTH_FORGET_MS && !(g.blockUntil && (int32_t)(now - g.blockUntil) < 0)) g = {};
+    }
+    if (g.lastAt < oldest->lastAt || !(g.fails || g.blockUntil)) oldest = &g;
+  }
+  if (!create) return nullptr;
+  *oldest = { ip, 0, now, 0 };                 // table full: the stalest entry goes
+  return oldest;
+}
+
+// True and an answer sent: this address is blocked right now.
+bool guesserBlocked() {
+  Guesser *g = guesser(false);
+  if (!g || !g->blockUntil) return false;
+  if ((int32_t)(millis() - g->blockUntil) < 0) {
+    server.send(429, "application/json", "{\"error\":\"too many wrong passwords from this address, try again in a minute\",\"from\":\"" + g->ip.toString() + "\"}");
+    return true;
+  }
+  *g = {};
+  return false;
+}
+
+void guesserWrong() {
+  if (server.client().remoteIP() == WiFi.gatewayIP()) {
+    Serial.println("[auth] wrong password from the gateway address (masqueraded?): not counted");
+    return;
+  }
+  Guesser *g = guesser(true);
+  g->lastAt = millis();
+  if (++g->fails >= AUTH_MAX_FAILS) {
+    g->fails = 0;
+    g->blockUntil = millis() + AUTH_BLOCK_MS;
+    Serial.printf("[auth] %u wrong passwords from %s: that address is blocked for a minute\n", AUTH_MAX_FAILS, g->ip.toString().c_str());
+  }
+}
+
+void guesserRight() {
+  Guesser *g = guesser(false);
+  if (g) *g = {};
+}
+
 // Every handler starts with this. True: go on. False: the answer has been sent.
 bool authGate() {
   if (!authOn) return true;
-  if (authLockUntil && (int32_t)(millis() - authLockUntil) < 0) {
-    server.send(429, "application/json", "{\"error\":\"too many wrong logins, try again in a minute\"}");
-    return false;
-  }
-  authLockUntil = 0;
+  if (guesserBlocked()) return false;
   AuthRes r = authCheck();
-  if (r == AUTH_OK) { authFails = 0; return true; }
-  if (r == AUTH_BAD) {
-    delay(300);                                  // slows guessing; the power loop tolerates it
-    if (++authFails >= AUTH_MAX_FAILS) {
-      authFails = 0;
-      authLockUntil = millis() + AUTH_LOCK_MS;
-      Serial.printf("[auth] %u wrong logins from %s: locked for a minute\n", AUTH_MAX_FAILS, server.client().remoteIP().toString().c_str());
-    }
-  }
+  if (r == AUTH_OK) { guesserRight(); return true; }
+  if (r == AUTH_BAD) guesserWrong();
   authChallenge(r == AUTH_STALE);
   return false;
 }
@@ -759,9 +803,10 @@ void otaLoad() {
 // on. It moves to NVS: the compiled one is only the default, and flash.sh usb --erase
 // is the way back when it is lost.
 void handleOtaPass() {
+  if (guesserBlocked()) return;                // also with the login off: this is a password too
   if (!authGate()) return;
   if (server.arg("cur") != otaPass) {
-    delay(500);
+    guesserWrong();
     server.send(403, "application/json", "{\"ok\":false,\"error\":\"wrong current OTA password\"}");
     return;
   }
@@ -807,7 +852,9 @@ void handleAuthGet() {
 // to save; with the login on, being logged in is the protection. The OTA password
 // gets past the login here, which is the way back in for a forgotten one: on=0 with ota=... .
 void handleAuthPost() {
+  if (guesserBlocked()) return;
   bool otaOk = server.hasArg("ota") && server.arg("ota") == otaPass;
+  if (server.hasArg("ota") && server.arg("ota").length() && !otaOk) guesserWrong();   // a guess at the OTA password counts too
   if (!otaOk && !authGate()) return;
   bool on = server.arg("on") == "1";
   String user = server.arg("user"); user.trim();
@@ -822,7 +869,6 @@ void handleAuthPost() {
   }
   authOn = on;
   if (!on) { authUser = ""; authPass = ""; }   // off means gone, also from GET /rest/auth
-  authFails = 0; authLockUntil = 0;
   authStore();
   Serial.printf("[auth] login %s (user %s)\n", authOn ? "on" : "off", authOn ? authUser.c_str() : "-");
   server.send(200, "application/json", String("{\"ok\":true,\"on\":") + (authOn ? "true" : "false") +

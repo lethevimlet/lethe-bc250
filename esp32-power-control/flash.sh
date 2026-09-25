@@ -71,7 +71,7 @@ ask() {   # VAR "prompt" [secret]
     printf -v "$var" '%s' "$v"
 }
 load_conf() {
-    WIFI_SSID=""; WIFI_PASS=""; OTA_PASS=""; CONSOLE_API=""; MDNS_NAME=bc250; ESP32_HOST=""
+    WIFI_SSID=""; WIFI_PASS=""; OTA_PASS=""; CONSOLE_API=""; MDNS_NAME=bc250; ESP32_HOST=""; WEB_LOGIN=""
     # shellcheck disable=SC1090
     [ -f "$CONF" ] && . "$CONF"
     [ -n "$WIFI_SSID" ]   || ask WIFI_SSID "Wi-Fi network name (SSID)"
@@ -81,7 +81,7 @@ load_conf() {
     case "$CONSOLE_API" in http://*|https://*) ;; *) CONSOLE_API="http://$CONSOLE_API" ;; esac
     case "$CONSOLE_API" in *:*:*) ;; *) CONSOLE_API="$CONSOLE_API:8250" ;; esac
     { echo "# lethe-bc250 ESP32 build values (gitignored). Delete a line to be asked again."
-      printf 'WIFI_SSID=%q\nWIFI_PASS=%q\nOTA_PASS=%q\nCONSOLE_API=%q\nMDNS_NAME=%q\nESP32_HOST=%q\n' "$WIFI_SSID" "$WIFI_PASS" "$OTA_PASS" "$CONSOLE_API" "$MDNS_NAME" "$ESP32_HOST"
+      printf 'WIFI_SSID=%q\nWIFI_PASS=%q\nOTA_PASS=%q\nCONSOLE_API=%q\nMDNS_NAME=%q\nESP32_HOST=%q\nWEB_LOGIN=%q\n' "$WIFI_SSID" "$WIFI_PASS" "$OTA_PASS" "$CONSOLE_API" "$MDNS_NAME" "$ESP32_HOST" "$WEB_LOGIN"
     } > "$CONF"; chmod 600 "$CONF"
 }
 save_host() { python3 - "$CONF" "$1" <<'PY'
@@ -149,7 +149,11 @@ ota() {
     [ -n "$host" ] || ask host "ESP32 address (IP, or bc250.local where mDNS works)"
     host=${host#http://}; host=${host%%/*}
     say "Checking $host"
-    st=$(curl -fsS -m 5 "http://$host/rest/status") || die "no answer from http://$host/rest/status"
+    # the page may have its login on: WEB_LOGIN=user:pass in config.local gets past it
+    local auth=(); [ -n "$WEB_LOGIN" ] && auth=(--digest -u "$WEB_LOGIN")
+    local code; code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "${auth[@]}" "http://$host/rest/status" || true)
+    [ "$code" = 401 ] && die "the page at $host asks for a login: put WEB_LOGIN=user:pass into $CONF (or the wrong one is there)"
+    st=$(curl -fsS -m 5 "${auth[@]}" "http://$host/rest/status") || die "no answer from http://$host/rest/status"
     echo "    $st"
     echo "$st" | grep -q '"state":"OFF"' || die "the console is not OFF (state $(echo "$st" | grep -oE '"state":"[A-Z]*"' | cut -d'"' -f4)). Shut it down first: OTA reboots the ESP32, which would hard-cut a running console."
     echo "$st" | grep -q '"ota":true'   || die "OTA is not armed yet; wait a few seconds after the console reports OFF and retry"
@@ -160,7 +164,7 @@ ota() {
     say "Updating $host over the air"
     python3 "$espota" -i "$host" -p 3232 -a "$OTA_PASS" -f "$OUT/bc250_power_opto.ino.bin" -r 2>&1 | tr '\r' '\n' | grep -vE '^Uploading|^\s*$' | tail -3
     say "Waiting for the ESP32 to come back"
-    sleep 8; local i; for i in $(seq 1 12); do st=$(curl -fsS -m 4 "http://$host/rest/status" 2>/dev/null) && break; sleep 5; done
+    sleep 8; local i; for i in $(seq 1 12); do st=$(curl -fsS -m 4 "${auth[@]}" "http://$host/rest/status" 2>/dev/null) && break; sleep 5; done
     [ -n "$st" ] || die "the ESP32 did not answer after the update (it keeps the previous firmware if the upload was rejected)"
     ok "back: uptime $(echo "$st" | grep -oE '"uptime":[0-9]+' | cut -d: -f2) s, console $(echo "$st" | grep -oE '"console":"[^"]*"' | cut -d'"' -f4)"
 }
