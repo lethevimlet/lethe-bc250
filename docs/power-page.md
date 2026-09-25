@@ -55,10 +55,10 @@ or the service not installed) the panel shows a short notice with **retry** and 
 links and a pointer to [Stats and switches over the network](api.md), and it says `asleep` during a fake sleep.
 The footer's `console …` entry shows the `bc250-api` address; tapping it opens **Settings**.
 
-## Settings: Wi-Fi, IP address, console address
+## Settings: Wi-Fi, IP address, console address, login
 
 <p align="center">
-  <img src="images/esp32-settings.png" alt="The Settings section of the ESP32 page: Wi-Fi name and password, DHCP or static IP with address, gateway, mask and DNS, the OTA password to confirm, and a separate box for the bc250-api address" width="300">
+  <img src="images/esp32-settings.png" alt="The Settings section of the ESP32 page: Wi-Fi name and password, DHCP or static IP with address, gateway, mask and DNS, the OTA password to confirm, a box for the bc250-api address, and the Access box with the login checkbox" width="300">
 </p>
 
 Everything that used to need a reflash lives in one collapsible **Settings** section at the bottom of
@@ -123,12 +123,34 @@ As a last resort, if Wi-Fi stays down for an hour **while the console is off**, 
 itself to come back with a fresh radio; that restart does not count as a power-up, so it opens no
 hotspot. It never restarts while the console runs.
 
+**Access: a login for the page.** Off by default, so at home nothing asks. The **Access** block under
+Settings turns it on with a username and a password (8 to 63 characters); turning it on needs the OTA
+password, like every change that could lock you out, and once on, being logged in is enough to change
+the username or password or to turn it off again. With the login on, the page and every `/rest/…`
+call (status, the power buttons, the settings) ask for it; the browser shows its own login box, and
+the footer says `login on`. Five wrong logins lock the page for a minute, for everyone. A forgotten
+password is undone from your own network with the OTA password:
+`curl -X POST http://<esp32-ip>/rest/auth -d on=0 -d ota=<OTA password>`.
+
+{: .warning }
+> This is what lets you forward the page's port (80) through your router so the console can be
+> powered from anywhere, and it is a lock, not a vault. The login is HTTP digest: the password itself
+> never travels, but nothing else is encrypted, since the ESP32 does no HTTPS: what the page shows
+> (state, addresses, the console's stats) is readable on the way, and a forwarded port is a target
+> for guessing, which the lock-out only slows. A VPN into your home (WireGuard on the router,
+> Tailscale) is the better way to reach it, with no login needed. If you forward anyway: only port
+> 80 of the ESP32, never 8250 (`bc250-api` has no login and takes tune settings and shutdowns), never
+> 3232 (OTA), and never the console itself. The console panel on the page will not load from
+> outside, since it comes from `bc250-api` on the LAN: the power buttons and Settings still work.
+
 | Endpoint | What |
 |----------|------|
 | `GET /rest/net` | current and saved network settings, without the password; `last_error` after a rollback |
 | `POST /rest/net` | `ssid`, `pass`, `open`, `mode=dhcp\|static`, `ip`, `gw`, `mask`, `dns`, `ota`; `reset=1` returns to the compiled defaults |
 | `POST /rest/hotspot` | `ota`; opens the hotspot for five minutes (`secs=30…300`), `off=1` closes it |
 | `GET /rest/console?url=…` | the `bc250-api` address; empty restores the compiled default |
+| `GET /rest/auth` | whether the login is on, and the username |
+| `POST /rest/auth` | `on=0\|1`, `user`, `pass` (empty keeps the current one), `ota` (needed to turn it on, and gets past a forgotten login) |
 
 * The button does what [the table at the top](#the-button) says: a click powers on, or sleeps and
   wakes a running console; two clicks shut it down cleanly; a 5 s hold forces the PSU off (this only
@@ -139,8 +161,8 @@ hotspot. It never restarts while the console runs.
   a hard cut. `/rest/status` also carries `console`, the `bc250-api` address the page polls;
   `/rest/console?url=…` changes it without a reflash, and `/rest/net` does the same for Wi-Fi and IP
   (see Settings above). For bench checks without a serial cable it also has `temp` (chip, °C), `btn` and
-  `presses` (the button, on pad `7` or `10`), `lows` (other free pads pulled to ground since boot) and
-  `pins` (the live level of every pad).
+  `presses` (the button, on pad `7` or `10`), `lows` (other free pads pulled to ground since boot),
+  `pins` (the live level of every pad) and `auth` (whether the login is on).
 * After a mains outage the machine stays off and waits for a press. To change that, call `psuOn()` at
   the end of `setup()` instead of entering `ST_OFF`.
 * An ESP32 crash or watchdog reset cuts a running machine: the LED goes dark before any code runs.

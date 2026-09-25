@@ -96,6 +96,12 @@ depend on each other.
   `homebrew.sunshine`, the formula creates `app-dev.lizardbyte.app.Sunshine`), its `sudo` step needs a
   tty, and `ujust setup-sunshine status` mistakes the brew unit for the Flatpak. `step_sunshine` in
   `install.sh` therefore checks the Cellar, sets the capabilities itself and restarts the unit.
+* **Every HTTP handler in the sketch starts with `if (!authGate()) return;`.** The optional login (off
+  by default, NVS `auth_on`) is enforced per handler, so a new endpoint without that line is an open
+  door. Digest is verified by the sketch's own `authCheck()`, not `WebServer::authenticate()`: that one
+  remembers a single nonce, so two open browsers would re-challenge each other on every request and
+  each miss would count as a wrong password. `/rest/auth` with the OTA password bypasses the gate on
+  purpose (the way back from a forgotten password); keep it the only such path.
 * **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
   compile because a stale `.bin` was still there.
 * **systemd ordering cycles.** `bc250-tune.service` is `After=multi-user.target` and wanted by it. A

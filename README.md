@@ -24,6 +24,7 @@ was built from these instructions alone.
   front button and a web page with Power on, Shut down, Sleep and Force off, live stats (FPS, clocks,
   temperatures, watts, fan) and every tuning switch. Wi-Fi, a static IP and the console address are
   set from the page, and with no Wi-Fi it opens its own hotspot, so it never needs a reflash to move.
+  An optional login (off by default) is there for those who forward the page's port.
   [Soft power control](https://lethevimlet.github.io/lethe-bc250/power.html)
 * <a id="46-stats-and-switches-over-the-network-bc250-api"></a>**Stats and switches over the LAN.**
   `bc250-api` is a tiny REST service on the console that feeds that page, and anything else you point

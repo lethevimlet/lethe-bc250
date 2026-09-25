@@ -50,6 +50,7 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <Preferences.h>
+#include <MD5Builder.h>
 #include <esp_wifi.h>
 
 #define BENCH_MODE 0
@@ -138,6 +139,28 @@ uint32_t wifiUpSince   = 0;
 const char *OTA_PASS = "CHANGE_ME";        // Never ship empty: this
                                            // firmware owns the power path.
 bool otaEnabled = false;                   // only armed while state == ST_OFF
+
+// ---- Login (off by default) ------------------------------------
+// For a page that is reachable from outside the home network. HTTP digest, so the
+// password never travels, though the page itself is not encrypted (no HTTPS on the
+// ESP32): a VPN home is the better way in, this is the lock for those who forward
+// the port anyway. Verified here rather than by WebServer::authenticate(), which
+// remembers only the last nonce it issued: with two browsers open, each request
+// would fail and be re-challenged, and every such failure would look like a wrong
+// password. Nonces are kept in a short ring instead, and only a wrong response to a
+// nonce we issued counts as a failed login.
+const char    *AUTH_REALM     = "BC250";
+const uint8_t  AUTH_MAX_FAILS = 5;         // then AUTH_LOCK_MS of 429 for everyone
+const uint32_t AUTH_LOCK_MS   = 60000;
+const uint32_t NONCE_LIFE_MS  = 600000;    // a browser reuses a nonce until told it is stale
+bool     authOn = false;
+String   authUser, authPass;
+uint8_t  authFails = 0;
+uint32_t authLockUntil = 0;
+enum AuthRes { AUTH_OK, AUTH_NONE, AUTH_STALE, AUTH_BAD };   // up here: the sketch generator puts prototypes before this point
+struct Nonce { String v; uint32_t at; };
+Nonce    nonces[4];
+uint8_t  nonceNext = 0;
 
 // ---- Pins ------------------------------------------------------
 const uint8_t PIN_OPTO   = 4;   // drives the PC817 LED through R3
@@ -389,9 +412,29 @@ and so does the link below. It is kept short because hotspot mode runs the board
 <div class="msg" id="capimsg"></div>
 <p class="hint">Port 8250 unless you changed it. Empty restores the address compiled into the firmware.</p>
 </div>
+<div class="grp"><h3>Access</h3>
+<label class="chk"><input id="aon" type="checkbox">Ask for a username and password</label>
+<div id="abox">
+<label for="auser">Username</label>
+<input id="auser" type="text" maxlength="32" autocomplete="username" autocapitalize="none" spellcheck="false">
+<label for="apass">Password</label>
+<input id="apass" type="password" maxlength="63" autocomplete="new-password">
+<label for="apass2">Password again</label>
+<input id="apass2" type="password" maxlength="63" autocomplete="new-password">
+</div>
+<div id="aota"><label for="aotap">OTA password, to turn the login on</label>
+<input id="aotap" type="password" autocomplete="off"></div>
+<button class="save" id="asave" type="button">Save access</button>
+<div class="msg" id="amsg"></div>
+<p class="hint">Off by default: at home nothing asks. Turn it on before forwarding this page's port
+through your router. The login is HTTP digest, so the password itself never travels, but the page is
+not encrypted (the ESP32 does no HTTPS): a VPN into your home is the better way in. Five wrong logins
+lock the page for a minute. Forgotten? From your own network: <b>curl -X POST http:&#47;&#47;&lt;esp32-ip&gt;/rest/auth
+-d on=0 -d ota=&lt;OTA password&gt;</b>. Never forward port 8250 (bc250-api) or 3232 (OTA).</p>
+</div>
 </details>
 <div class="net"><span id="rssi"></span><span id="ota"></span><span id="sense"></span>
-<span id="capi" title="tap to change the bc250-api address"></span><span id="chip"></span></div>
+<span id="capi" title="tap to change the bc250-api address"></span><span id="lock"></span><span id="chip"></span></div>
 <div class="id" id="id"></div>
 </div>
 <script>
@@ -414,6 +457,7 @@ async function poll(){
   $('ota').textContent=d.ota?'OTA ready':'OTA locked';
   if(d.temp!=null)$('chip').textContent='chip '+Math.round(d.temp)+' °C · button '+(d.btn?'DOWN':'up')+' ×'+d.presses+(d.lows?' · pads seen low: '+d.lows:'');
   $('id').textContent=d.ip+'  ·  '+d.mac;
+  $('lock').textContent=d.auth?'login on':'';
   $('on').disabled=(d.state!='OFF');
   $('off').disabled=(d.state=='OFF'||d.state=='STOPPING');
   api=new URLSearchParams(location.search).get('console')||d.console||null;
@@ -448,7 +492,25 @@ async function loadNet(){
   $('setsum').textContent=n.ssid+' · '+(n.cur_ip=='0.0.0.0'?'not connected':(n.static?'static ':'DHCP ')+n.cur_ip)+(n.ap?' · hotspot on':'');
  }catch(e){}
 }
-$('set').addEventListener('toggle',()=>{if($('set').open){loadNet();$('capi2').value=api||''}});
+$('set').addEventListener('toggle',()=>{if($('set').open){loadNet();loadAuth();$('capi2').value=api||''}});
+let authWas=false;
+function abox(){const on=$('aon').checked;$('abox').style.display=on?'':'none';
+ $('aota').style.display=(on&&!authWas)?'':'none';
+ $('apass').placeholder=authWas?'leave empty to keep the current one':'';$('apass2').placeholder=$('apass').placeholder}
+$('aon').onchange=abox;
+async function loadAuth(){
+ try{const r=await fetch('/rest/auth'),a=await r.json();authWas=a.on;$('aon').checked=a.on;$('auser').value=a.user||'';abox()}catch(e){}
+}
+$('asave').onclick=async()=>{const m=$('amsg');
+ if($('aon').checked&&$('apass').value!=$('apass2').value){m.textContent='The two passwords differ.';return}
+ const b=new URLSearchParams();b.set('on',$('aon').checked?'1':'0');b.set('user',$('auser').value.trim());
+ b.set('pass',$('apass').value);b.set('ota',$('aotap').value);m.textContent='Saving…';
+ try{const r=await fetch('/rest/auth',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()}),j=await r.json();
+  if(!j.ok){m.textContent='Not saved: '+(j.error||'error');return}
+  $('apass').value=$('apass2').value=$('aotap').value='';
+  if(j.on&&j.changed){m.textContent='Saved. The page will now ask you to log in.';setTimeout(()=>location.reload(),1200)}
+  else{m.textContent=j.on?'Saved.':'Saved. The page no longer asks for a login.';loadAuth();poll()}
+ }catch(e){m.textContent='No answer from the ESP32.'}};
 $('capisave').onclick=async()=>{const r=await fetch('/rest/console?url='+encodeURIComponent($('capi2').value.trim()));
  $('capimsg').textContent=r.ok?'Saved.':'Not saved: it must start with http:'+SL+SL+' and include the port, for example :8250';
  setRunning(false);poll()};
@@ -588,19 +650,161 @@ uint32_t netPendingLeft() {
   return el >= NET_CONFIRM_MS ? 0 : (NET_CONFIRM_MS - el) / 1000;
 }
 
+void netError(const char *msg);
+
+String md5(const String &s) {
+  MD5Builder m; m.begin(); m.add(s); m.calculate(); return m.toString();
+}
+
+// value of key=... in a Digest header: quoted or bare
+String dparam(const String &h, const char *key) {
+  String k = String(key) + "=";
+  int i = h.indexOf(k);
+  while (i > 0 && h[i - 1] != ' ' && h[i - 1] != ',') i = h.indexOf(k, i + 1);   // whole key only
+  if (i < 0) return "";
+  i += k.length();
+  if (i < (int)h.length() && h[i] == '"') { int e = h.indexOf('"', i + 1); return e < 0 ? "" : h.substring(i + 1, e); }
+  int e = i; while (e < (int)h.length() && h[e] != ',' && h[e] != ' ') e++;
+  return h.substring(i, e);
+}
+
+String newNonce() {
+  char b[17];
+  snprintf(b, sizeof(b), "%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random());
+  nonces[nonceNext] = { String(b), millis() };
+  nonceNext = (nonceNext + 1) % 4;
+  return String(b);
+}
+
+bool nonceKnown(const String &n) {
+  if (!n.length()) return false;
+  for (auto &x : nonces) if (x.v == n && millis() - x.at < NONCE_LIFE_MS) return true;
+  return false;
+}
+
+void authChallenge(bool stale) {
+  String h = String("Digest realm=\"") + AUTH_REALM + "\", qop=\"auth\", nonce=\"" + newNonce() + "\"";
+  if (stale) h += ", stale=true";
+  server.sendHeader("WWW-Authenticate", h);
+  server.send(401, "text/plain", "login required");
+}
+
+
+AuthRes authCheck() {
+  if (!server.hasHeader("Authorization")) return AUTH_NONE;
+  String h = server.header("Authorization");
+  if (!h.startsWith("Digest ")) return AUTH_BAD;
+  String nonce = dparam(h, "nonce");
+  if (!nonceKnown(nonce)) return AUTH_STALE;
+  String uri = dparam(h, "uri");
+  if (dparam(h, "username") != authUser || dparam(h, "realm") != AUTH_REALM ||
+      !uri.startsWith(server.uri())) return AUTH_BAD;
+  const char *method = server.method() == HTTP_POST ? "POST" : server.method() == HTTP_PUT ? "PUT" :
+                       server.method() == HTTP_DELETE ? "DELETE" : "GET";
+  String ha1 = md5(authUser + ":" + AUTH_REALM + ":" + authPass);
+  String ha2 = md5(String(method) + ":" + uri);
+  String qop = dparam(h, "qop"), want;
+  if (qop.length()) want = md5(ha1 + ":" + nonce + ":" + dparam(h, "nc") + ":" + dparam(h, "cnonce") + ":" + qop + ":" + ha2);
+  else              want = md5(ha1 + ":" + nonce + ":" + ha2);
+  return want.equalsIgnoreCase(dparam(h, "response")) ? AUTH_OK : AUTH_BAD;
+}
+
+// Every handler starts with this. True: go on. False: the answer has been sent.
+bool authGate() {
+  if (!authOn) return true;
+  if (authLockUntil && (int32_t)(millis() - authLockUntil) < 0) {
+    server.send(429, "application/json", "{\"error\":\"too many wrong logins, try again in a minute\"}");
+    return false;
+  }
+  authLockUntil = 0;
+  AuthRes r = authCheck();
+  if (r == AUTH_OK) { authFails = 0; return true; }
+  if (r == AUTH_BAD) {
+    delay(300);                                  // slows guessing; the power loop tolerates it
+    if (++authFails >= AUTH_MAX_FAILS) {
+      authFails = 0;
+      authLockUntil = millis() + AUTH_LOCK_MS;
+      Serial.printf("[auth] %u wrong logins from %s: locked for a minute\n", AUTH_MAX_FAILS, server.client().remoteIP().toString().c_str());
+    }
+  }
+  authChallenge(r == AUTH_STALE);
+  return false;
+}
+
+void authLoad() {
+  prefs.begin("bc250", true);
+  authOn   = prefs.getBool("auth_on", false);
+  authUser = prefs.getString("auth_user", "");
+  authPass = prefs.getString("auth_pass", "");
+  prefs.end();
+  if (authOn && (!authUser.length() || !authPass.length())) authOn = false;   // never lock with no key
+}
+
+void authStore() {
+  prefs.begin("bc250", false);
+  prefs.putBool("auth_on", authOn);
+  if (authOn) { prefs.putString("auth_user", authUser); prefs.putString("auth_pass", authPass); }
+  else        { prefs.remove("auth_user"); prefs.remove("auth_pass"); }
+  prefs.end();
+}
+
+bool cleanText(const String &s) {
+  for (size_t i = 0; i < s.length(); i++) if (s[i] < 0x20 || s[i] > 0x7e || s[i] == '"' || s[i] == ':') return false;
+  return true;
+}
+
+void handleAuthGet() {
+  if (!authGate()) return;
+  server.send(200, "application/json", String("{\"on\":") + (authOn ? "true" : "false") + ",\"user\":\"" + jsonEsc(authUser) + "\"}");
+}
+
+// POST /rest/auth: on=0|1, user, pass (empty = keep, when already on), ota.
+// Turning it on needs the OTA password (a change that can lock the owner out, like
+// /rest/net); once on, being logged in is enough. The OTA password also gets past the
+// login here, which is the way back in for a forgotten password: on=0 with ota=... .
+void handleAuthPost() {
+  bool otaOk = strcmp(server.arg("ota").c_str(), OTA_PASS) == 0;
+  if (!otaOk && !authGate()) return;
+  if (!authOn && server.arg("on") == "1" && !otaOk) {
+    delay(300);
+    server.send(403, "application/json", "{\"ok\":false,\"error\":\"the OTA password is needed to turn the login on\"}");
+    return;
+  }
+  bool on = server.arg("on") == "1";
+  String user = server.arg("user"); user.trim();
+  String pass = server.arg("pass");
+  bool changed = false;
+  if (on) {
+    if (user.length() < 1 || user.length() > 32 || !cleanText(user)) { netError("username must be 1 to 32 plain characters, no quotes or colons"); return; }
+    if (!pass.length() && authOn) pass = authPass;                         // keep it
+    if (pass.length() < 8 || pass.length() > 63 || !cleanText(pass)) { netError("password must be 8 to 63 plain characters, no quotes or colons"); return; }
+    changed = !authOn || user != authUser || pass != authPass;
+    authUser = user; authPass = pass;
+  }
+  authOn = on;
+  if (!on) { authUser = ""; authPass = ""; }   // off means gone, also from GET /rest/auth
+  authFails = 0; authLockUntil = 0;
+  authStore();
+  Serial.printf("[auth] login %s (user %s)\n", authOn ? "on" : "off", authOn ? authUser.c_str() : "-");
+  server.send(200, "application/json", String("{\"ok\":true,\"on\":") + (authOn ? "true" : "false") +
+    ",\"user\":\"" + jsonEsc(authUser) + "\",\"changed\":" + (changed ? "true" : "false") + "}");
+}
+
 void handleRoot() {
+  if (!authGate()) return;
   netSeen();
   server.send_P(200, "text/html; charset=utf-8", PAGE_HTML);
 }
 
 void handleStatus() {
+  if (!authGate()) return;
   netSeen();
   char buf[900];
   snprintf(buf, sizeof(buf),
     "{\"state\":\"%s\",\"sense\":%s,\"uptime\":%lu,\"rssi\":%d,"
     "\"heap\":%lu,\"ota\":%s,\"ip\":\"%s\",\"mac\":\"%s\",\"console\":\"%s\","
     "\"ssid\":\"%s\",\"ap\":%s,\"wifi\":%s,\"net_pending\":%lu,"
-    "\"temp\":%.1f,\"btn\":%s,\"presses\":%lu,\"click\":\"%s\",\"lows\":\"%s\",\"pins\":\"%s\"}",
+    "\"temp\":%.1f,\"btn\":%s,\"presses\":%lu,\"click\":\"%s\",\"lows\":\"%s\",\"pins\":\"%s\",\"auth\":%s}",
     stateName(state),
     boardAlive() ? "true" : "false",
     (unsigned long)(millis() / 1000),
@@ -619,7 +823,8 @@ void handleStatus() {
     (unsigned long)btnPresses,
     jsonEsc(clickResult).c_str(),
     probeList().c_str(),
-    pinLevels().c_str());
+    pinLevels().c_str(),
+    authOn ? "true" : "false");
   server.send(200, "application/json", buf);
 }
 
@@ -634,6 +839,7 @@ void loadConsoleApi() {
 // POST /rest/hotspot (ota=...): open the hotspot for AP_FORCE_MS even though Wi-Fi works,
 // e.g. to check it from a phone. Wi-Fi stays connected alongside it.
 void handleHotspot() {
+  if (!authGate()) return;
   netSeen();
   if (strcmp(server.arg("ota").c_str(), OTA_PASS) != 0) {
     delay(500);
@@ -655,6 +861,7 @@ void handleHotspot() {
 }
 
 void handleConsole() {
+  if (!authGate()) return;
   netSeen();
   if (!server.hasArg("url")) {
     server.send(400, "application/json", "{\"error\":\"url missing\"}");
@@ -677,18 +884,21 @@ void handleConsole() {
 }
 
 void handleOn() {
+  if (!authGate()) return;
   reqOn = true;
   Serial.println("[web] ON requested");
   server.send(200, "application/json", "{\"ok\":true,\"action\":\"on\"}");
 }
 
 void handleOff() {
+  if (!authGate()) return;
   reqOff = true;
   Serial.println("[web] OFF requested (hard cut)");
   server.send(200, "application/json", "{\"ok\":true,\"action\":\"off\"}");
 }
 
 void handleNotFound() {
+  if (!authGate()) return;
   server.send(404, "application/json", "{\"error\":\"not found\"}");
 }
 
@@ -950,6 +1160,7 @@ void wifiTick() {
 // GET shows them (never the password). POST changes them and needs the
 // OTA password: losing these settings can lock the owner out.
 void handleNetGet() {
+  if (!authGate()) return;
   netSeen();
   String j = "{\"ssid\":\"" + jsonEsc(netCur.ssid) + "\",\"open\":" + (netCur.pass.length() ? "false" : "true") +
     ",\"static\":" + (netCur.staticIp ? "true" : "false") +
@@ -967,6 +1178,7 @@ void netError(const char *msg) {
 }
 
 void handleNetPost() {
+  if (!authGate()) return;
   if (strcmp(server.arg("ota").c_str(), OTA_PASS) != 0) {
     delay(500);                                  // slows guessing; the power loop tolerates it
     server.send(403, "application/json", "{\"ok\":false,\"error\":\"wrong OTA password\"}");
@@ -1070,6 +1282,7 @@ void setup() {
   healMagic = 0;
 
   loadConsoleApi();
+  authLoad();
   netLoad();
   WiFi.onEvent(onWifiEvent);
   wifiStart();
@@ -1083,6 +1296,8 @@ void setup() {
   server.on("/rest/net", HTTP_GET,  handleNetGet);
   server.on("/rest/net", HTTP_POST, handleNetPost);
   server.on("/rest/hotspot", HTTP_POST, handleHotspot);
+  server.on("/rest/auth", HTTP_GET,  handleAuthGet);
+  server.on("/rest/auth", HTTP_POST, handleAuthPost);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("[web] server up on port 80");
