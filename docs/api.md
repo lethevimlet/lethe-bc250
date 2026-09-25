@@ -1,6 +1,6 @@
 ---
 title: Stats and switches over the network
-nav_order: 7
+nav_order: 8
 ---
 
 # Stats and switches over the network

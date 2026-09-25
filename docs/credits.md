@@ -1,6 +1,6 @@
 ---
 title: Credits and license
-nav_order: 11
+nav_order: 12
 ---
 
 # Credits and license

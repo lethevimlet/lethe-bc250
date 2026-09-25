@@ -69,10 +69,11 @@ reference this guide leans on. Start there if something here is not covered.
 2. [Hardware preparation](hardware.md) — heatsink lid, power cable
 3. [Install Bazzite and the 62fixolab BC-250 image](os.md)
 4. [Tuning: `bc250-tune`](tuning.md) — VRAM split, clocks, 40 CU, 8 cores, HUD, resolution, Steam menu plugin, fake sleep plugin
-5. [Soft power control with an ESP32](power.md) — circuit, flashing, OTA, web page
-6. [3D-printed case](case.md)
-7. [Things we learned](lessons.md)
-8. [Credits](credits.md)
+5. [Stream with Moonlight](streaming.md) — Sunshine on the console, and what it can capture
+6. [Soft power control with an ESP32](power.md) — circuit, flashing, OTA, web page
+7. [3D-printed case](case.md)
+8. [Things we learned](lessons.md)
+9. [Credits](credits.md)
 
 ---
 
@@ -101,8 +102,9 @@ The whole build, in order. Each step links to the section with the details.
 3. **OS** — install stock Bazzite (deck), then rebase to the 62fixolab `-40cu` image and reboot
    ([Install Bazzite](os.md)).
 4. **Tune** — run the installer above on the BC-250 and tick `bc250-tune`, Decky Loader, the two
-   plugins and `bc250-api` (or do it by hand: [Tuning: bc250-tune](tuning.md),
-   [Stats and switches over the network](api.md)).
+   plugins and `bc250-api`, and Sunshine if you want to play it from another screen (or do it by hand:
+   [Tuning: bc250-tune](tuning.md), [Stats and switches over the network](api.md),
+   [Stream with Moonlight](streaming.md)).
    Set the Performance Overlay slider to level 1 for the HUD. Treat 40 CU and 8 cores as optional
    experiments: each board is a silicon lottery.
 5. **Power button** — build the ESP32 optocoupler wiring, flash the firmware (the installer's ESP32

@@ -1,6 +1,6 @@
 ---
 title: 3D-printed case
-nav_order: 9
+nav_order: 10
 ---
 
 # 3D-printed case

@@ -14,7 +14,7 @@ depend on each other.
 | `decky-bc250-sleep/` | Decky plugin: fake sleep, wake on input, quiet fans, control socket for the API; `main.py` + `src/index.tsx` → `dist/index.js` (committed) | the console |
 | `bc250-api/` | REST service (Python stdlib) on port 8250: stats, fps from gamescope's stats pipe, tune switches, sleep/wake, poweroff; `panel.js` = the console part of the ESP32 page, served at `/panel.js` | the console |
 | `esp32-power-control/` | ESP32-C3 sketch (`bc250_power_opto.ino`, the web page is a raw string inside it) and `flash.sh` | the ESP32; `flash.sh` on a laptop |
-| `install.sh` | the `curl \| bash` guided installer | console or laptop |
+| `install.sh` | the `curl \| bash` guided installer; its `sunshine` item is the only one without code of its own here (Bazzite's brew build, plus the fixes in `step_sunshine`) | console or laptop |
 | `docs/` | the documentation site (GitHub Pages, Jekyll + just-the-docs, built from this folder): one page per topic, images in `docs/images/` | |
 | `docs/images/esp32-gui.png` | screenshot of the ESP32 page, used by the README and the docs | |
 | `docs/images/schematic-esp32-pc817.svg` | wiring drawing: the SuperMini from the component side with its real pad order, the PC817 as the real package. Keep it matching the connections table in `docs/power-wiring.md` | |
@@ -89,6 +89,13 @@ depend on each other.
   reached the chip: the firmware read its pull-up as high forever while the pad measured 0 V. The
   firmware reads the button on pad `7` or `10`, and `/rest/status` has `lows` (free pads pulled to ground
   since boot) and `pins` (live levels) to find such things remotely. Compare the meter with `pins` early.
+* **Sunshine on this box is software-encoded, and Bazzite's recipe is not the whole install.** The GPU
+  (`cyan_skillfish`) gets no VCN block from amdgpu, so there is no VAAPI or Vulkan encoder: Sunshine
+  uses libx264, documented in `docs/streaming.md`; do not chase "Encoder [vaapi] failed". `ujust
+  setup-sunshine enable-brew` installs and starts it but exits 1 afterwards (its unit override names
+  `homebrew.sunshine`, the formula creates `app-dev.lizardbyte.app.Sunshine`), its `sudo` step needs a
+  tty, and `ujust setup-sunshine status` mistakes the brew unit for the Flatpak. `step_sunshine` in
+  `install.sh` therefore checks the Cellar, sets the capabilities itself and restarts the unit.
 * **`flash.sh` deletes the old binary before compiling.** It once reported success after a failed
   compile because a stale `.bin` was still there.
 * **systemd ordering cycles.** `bc250-tune.service` is `After=multi-user.target` and wanted by it. A

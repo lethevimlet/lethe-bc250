@@ -6,20 +6,21 @@
 #   git clone https://github.com/lethevimlet/lethe-bc250 && cd lethe-bc250 && ./install.sh
 #
 # On a BC-250 it clones (or updates) the repo into ~/lethe-bc250 and lets you pick what to install:
-# bc250-tune with its boot service, Decky Loader, the Tune and Sleep plugins, bc250-api. On any
+# bc250-tune with its boot service, Decky Loader, the Tune and Sleep plugins, bc250-api, Sunshine
+# (game streaming to Moonlight). On any
 # other machine it offers the ESP32 firmware build/flash helper (the ESP32 cannot be flashed from
 # the console: OTA only arms while the console is off). Re-run it any time: every step is idempotent
 # and re-running is the update path.
 #
-# Options (non-interactive):  --all | --only tune,decky,tune-plugin,sleep-plugin,api,esp32
+# Options (non-interactive):  --all | --only tune,decky,tune-plugin,sleep-plugin,api,sunshine,esp32
 #                             --dir PATH (checkout location, default ~/lethe-bc250)  --no-update
 set -euo pipefail
 
 usage() { cat <<'EOT'
 lethe-bc250 guided installer
   curl -fsSL https://raw.githubusercontent.com/lethevimlet/lethe-bc250/main/install.sh | bash
-  ./install.sh [--all | --only tune,decky,tune-plugin,sleep-plugin,api,esp32] [--dir PATH] [--no-update]
-On a BC-250: bc250-tune + boot services, Decky Loader, the Tune and Sleep plugins, bc250-api.
+  ./install.sh [--all | --only tune,decky,tune-plugin,sleep-plugin,api,sunshine,esp32] [--dir PATH] [--no-update]
+On a BC-250: bc250-tune + boot services, Decky Loader, the Tune and Sleep plugins, bc250-api, Sunshine.
 On any other machine: the ESP32 firmware build/flash helper.
 EOT
 }
@@ -80,9 +81,10 @@ declare -A DESC=(
     [tune-plugin]="BC-250 Tune plugin for the Steam Quick Access menu"
     [sleep-plugin]="BC-250 Sleep plugin: fake sleep, wake on any button, quiet fans"
     [api]="bc250-api: stats and switches over the LAN (feeds the ESP32 page)"
+    [sunshine]="Sunshine: stream Gaming Mode to Moonlight on a phone, laptop or TV box (Bazzite's brew build, KMS capture)"
     [esp32]="ESP32 power controller firmware: build, flash over USB, or update over the air"
 )
-if is_bc250; then ITEMS=(tune decky tune-plugin sleep-plugin api); else ITEMS=(esp32); fi
+if is_bc250; then ITEMS=(tune decky tune-plugin sleep-plugin api sunshine); else ITEMS=(esp32); fi
 
 case $MODE in
     all) CHOSEN=("${ITEMS[@]}") ;;
@@ -135,6 +137,60 @@ step_sleep_plugin() { install_plugin bc250-sleep "$DIR/decky-bc250-sleep"; }
 step_api()          { sudo "$DIR/bc250-api/install.sh"; }
 step_esp32()        { "$DIR/esp32-power-control/flash.sh"; }
 
+# Sunshine the way Bazzite does it on deck images: the brew build, because Gaming Mode is gamescope
+# on KMS and only KMS capture sees it (the flatpak cannot). ujust's recipe installs it, writes
+# capture = kms and starts the user service, but its tail is not trusted: its unit override targets
+# a unit name the current formula no longer uses (it exits 1 after a good install), its root step
+# needs a tty, and its status check mistakes the brew unit for the flatpak. So the parts that matter
+# are done here again, idempotently: capabilities (without them: "Failed to gain CAP_SYS_ADMIN",
+# no encoder, no stream), the capture mode, the service, the firewall.
+SUNSHINE_PORTS=(47984/tcp 47989/tcp 47990/tcp 48010/tcp 47998/udp 47999/udp 48000/udp 48002/udp 48010/udp)
+BREW=/home/linuxbrew/.linuxbrew/bin/brew
+sunshine_installed() { [ -d /home/linuxbrew/.linuxbrew/Cellar/sunshine ] || [ -e /home/linuxbrew/.linuxbrew/opt/sunshine ]; }
+step_sunshine() {
+    have ujust || { warn "no ujust here: this step is for Bazzite (see https://docs.bazzite.gg/Advanced/sunshine/)"; return 1; }
+    [ -x $BREW ] || { warn "brew is missing (/home/linuxbrew); Bazzite ships it, run 'ujust setup-brew' or reinstall it first"; return 1; }
+    if sunshine_installed; then
+        ok "Sunshine (brew) already installed"
+    else
+        yes | ujust setup-sunshine enable-brew || true    # one Y/n question; the exit code is the recipe's tail
+        sunshine_installed || { warn "brew did not install Sunshine (see above)"; return 1; }
+    fi
+    eval "$($BREW shellenv)"
+    local bin; bin=$(readlink -f "$(command -v sunshine)") || { warn "sunshine is not on PATH"; return 1; }
+
+    # KMS capture needs CAP_SYS_ADMIN on the binary; Bazzite's helper also loads uhid and reloads udev
+    if [ -x /usr/libexec/sunshine-postinst ]; then sudo /usr/libexec/sunshine-postinst >/dev/null
+    else sudo setcap cap_sys_admin,cap_sys_nice+p "$bin"; fi
+    getcap "$bin" | grep -q cap_sys_admin || { warn "could not set the capabilities on $bin"; return 1; }
+
+    local conf=$HOME/.config/sunshine/sunshine.conf
+    mkdir -p "$(dirname "$conf")"
+    grep -q '^capture *= *kms' "$conf" 2>/dev/null || { sed -i '/^capture *=/d' "$conf" 2>/dev/null; echo "capture = kms" >>"$conf"; }
+
+    # the formula's unit (After=graphical-session, Restart=on-failure); restart so it runs with the caps
+    brew services start sunshine >/dev/null 2>&1 || true
+    local unit; unit=$(systemctl --user list-units --all --no-legend '*unshine*.service' | awk '{print $1}' | head -1)
+    [ -n "$unit" ] || { warn "no sunshine user service after 'brew services start sunshine'"; return 1; }
+    systemctl --user enable "$unit" >/dev/null 2>&1 || true
+    systemctl --user restart "$unit"
+
+    if have firewall-cmd && sudo firewall-cmd --state >/dev/null 2>&1; then
+        local changed=0
+        for p in "${SUNSHINE_PORTS[@]}"; do
+            sudo firewall-cmd -q --permanent --query-port="$p" || { sudo firewall-cmd -q --permanent --add-port="$p"; changed=1; }
+        done
+        [ $changed = 0 ] || sudo firewall-cmd -q --reload
+    fi
+
+    sleep 8   # the unit sleeps 5 s before starting; then it probes the display and the encoder
+    if journalctl --user -u "$unit" --since "-20s" --no-pager 2>/dev/null | grep -q "Failed to gain CAP_SYS_ADMIN\|Unable to find display"; then
+        warn "Sunshine is up but found no display or encoder: is the TV connected and on? (journalctl --user -u $unit)"
+    else
+        ok "Sunshine is running ($unit); management page at https://<console-ip>:47990"
+    fi
+}
+
 for c in "${CHOSEN[@]}"; do
     say "${DESC[$c]}"
     fn=step_${c//-/_}
@@ -155,6 +211,7 @@ if is_bc250; then
     todo+=("The ESP32 firmware is built and flashed from another PC: run this same installer there")
     todo+=("Config lives in /etc/bc250-tune/config; 'sudo bc250-tune menu' or the Decky plugin to change it")
     todo+=("Quieter idle with 4-pin PWM fans: 'sudo bc250-tune set fan-curve on' (off by default; BIOS fan mode not Full Speed)")
+    [[ " ${CHOSEN[*]} " == *" sunshine "* ]] && todo+=("Sunshine: open https://<console-ip>:47990 from another device, set a user and password, then pair Moonlight (PIN). It streams what the TV shows, so the TV must be connected and on; no stream while the console is asleep. https://lethevimlet.github.io/lethe-bc250/streaming.html")
     sens=$(sudo /usr/local/bin/bc250-tune status --json 2>/dev/null | grep -o '"sensor":"[a-z-]*"' | cut -d'"' -f4 || true)
     case "$sens" in
         no-chip) todo+=("NOTE: this board's Super I/O does not answer, so there is no fan speed reading (HUD shows FAN n/a) and no fan curve / quiet fans. Usual cause: the ESP32 sense wire on TPMS1 sits on, or touches, an LPC pin instead of the 3.3 V pin. https://lethevimlet.github.io/lethe-bc250/power-page.html") ;;

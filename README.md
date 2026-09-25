@@ -28,6 +28,8 @@ was built from these instructions alone.
 * <a id="46-stats-and-switches-over-the-network-bc250-api"></a>**Stats and switches over the LAN.**
   `bc250-api` is a tiny REST service on the console that feeds that page, and anything else you point
   at it. [bc250-api](https://lethevimlet.github.io/lethe-bc250/api.html)
+* **Streaming to Moonlight.** The installer's Sunshine item sets up Bazzite's Sunshine build so a phone,
+  laptop or TV box can play the console over the LAN. [Streaming](https://lethevimlet.github.io/lethe-bc250/streaming.html)
 * **A printed case** sized for two 120 mm fans. [Case](https://lethevimlet.github.io/lethe-bc250/case.html)
 
 <p align="center">
