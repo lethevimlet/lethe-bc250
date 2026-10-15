@@ -27,7 +27,7 @@ CTL_SOCK = os.path.join(STATE_DIR, "ctl.sock")  # root-only control socket, used
 SETTINGS_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
 SLEEP_UNITS = ["sleep.target", "suspend.target", "hybrid-sleep.target", "hibernate.target", "suspend-then-hibernate.target"]
 DEFAULTS = {"pause_game": True, "mute_audio": True, "wake_on_input": True, "hook_steam_sleep": True, "quiet_fans": True,
-            "fan_pwm": 40}  # fan_pwm: duty 0-255 while asleep (40 = 15 %, ~770 rpm on ARCTIC P12 Pro)
+            "fan_pwm": 0}  # fan_pwm: duty 0-255 while asleep (P12 Pro stops below 5 %)
 CLEAN_ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"}
 EV_KEY = 0x01
 EVENT_FMT = "llHHi"  # struct input_event on 64-bit
@@ -37,7 +37,8 @@ EVENT_SIZE = struct.calcsize(EVENT_FMT)
 # nct6687 driver exposes a writable pwmN. The board's own curve barely changes speed between idle
 # and load, so the idle chip alone does not make the box quieter: we lower the duty ourselves.
 FAN_CHIPS = ("nct6687", "nct6686", "nct6683")
-FAN_PWM_MIN, FAN_PWM_MAX = 12, 128  # allowed range for the fan_pwm setting (5 %..50 %)
+FAN_PWM_MIN, FAN_PWM_MAX = 0, 128  # allowed range for the fan_pwm setting (0 %..50 %)
+FAN_STOP_DUTY = 12  # ARCTIC P12 Pro 0 dB mode: stopped at less than 5 % PWM
 FAN_MAX_TEMP_C = 65.0  # CPU or GPU die above this while asleep -> back to the board's curve
 FAN_MIN_RPM = 300  # slower than this once settled -> stalled -> back to the board's curve
 FAN_SETTLE_S = 10.0  # time the fan gets to react before the stall / no-response checks apply
@@ -253,6 +254,7 @@ def fan_quiet(fan, duty):
         decky.logger.warning("fans: lowering failed (%s), restoring", e)
         fan_restore(fan)
         return False
+    fan["zero_rpm"] = duty <= FAN_STOP_DUTY
     decky.logger.info("fans: pwm%d duty %s -> %d (mode was %s, %s rpm)", ch, fan["pwm"], duty, fan["enable"], fan["rpm"])
     return True
 
@@ -463,8 +465,9 @@ class Plugin:
 
     async def _fan_guard(self, fan):
         """While asleep, keep the lowered fan honest: back to the board's curve if a die gets warm, if the
-        fan stalled, or if it never slowed down (the EC ignores the duty, e.g. BIOS fan mode on Full
-        Speed). A failed sensor read counts as a reason too. Cancelled by wake(), which restores itself."""
+        fan unexpectedly stalls, or if it never slowed down (the EC ignores the duty, e.g. BIOS fan mode
+        on Full Speed). Zero rpm is expected for a below-5-percent stop command. A failed sensor read
+        counts as a reason too. Cancelled by wake(), which restores itself."""
         rpm_path = os.path.join(fan["hwmon"], f"fan{fan['ch']}_input")
         t0 = time.time()
         reason = None
@@ -477,7 +480,7 @@ class Plugin:
                 elif temp >= FAN_MAX_TEMP_C:
                     reason = f"die at {temp:.0f} C"
                 elif time.time() - t0 >= FAN_SETTLE_S:
-                    if rpm < FAN_MIN_RPM:
+                    if rpm < FAN_MIN_RPM and not fan.get("zero_rpm"):
                         reason = f"fan stalled ({rpm} rpm)"
                     elif rpm > fan["rpm"] * 0.9:
                         reason = f"fan did not slow down ({fan['rpm']} -> {rpm} rpm; BIOS fan mode on Full Speed?)"

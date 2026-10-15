@@ -126,7 +126,7 @@ function Content() {
         <PanelSectionRow>
           <ToggleField
             label="Quiet the fans"
-            description={`Lower the fan header while asleep. Back to the board's curve on wake, and at once if a die passes 65 °C, the fan stalls or it does not slow down. ${
+            description={`Lower or stop the fans while asleep. Back to the board's curve on wake, and at once if a die passes 65 °C, a running fan stalls or it does not slow down. ${
               st.fan_control ? `Fan now ${st.fan_rpm} rpm.` : "No controllable fan header found (needs the nct6687 driver)."
             }`}
             checked={s.quiet_fans}
@@ -137,8 +137,8 @@ function Content() {
         <PanelSectionRow>
           <DropdownItem
             label="Fan duty while asleep"
-            description="Lower is quieter; the guard still hands the fan back if a die passes 65 °C or the fan stalls"
-            rgOptions={[26, 40, 51, 64, 89, 128].map((v) => ({ data: v, label: `${Math.round((v * 100) / 255)} %` }))}
+            description="0 % stops ARCTIC P12 Pro fans; the temperature guard remains active"
+            rgOptions={[0, 13, 26, 40, 51, 64, 89, 128].map((v) => ({ data: v, label: `${Math.round((v * 100) / 255)} %` }))}
             selectedOption={s.fan_pwm}
             disabled={busy || !s.quiet_fans}
             onChange={(o) => act("fan_pwm", () => setSetting("fan_pwm", Number(o.data)))}
