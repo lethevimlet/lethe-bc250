@@ -26,7 +26,10 @@ which is why Bazzite steers deck images to brew. The recipe writes `capture = km
 `~/.config/sunshine/sunshine.conf` and starts Sunshine as a user service that comes up with the
 session; the installer then sets the capabilities KMS capture needs on the binary (without them the
 log says `Failed to gain CAP_SYS_ADMIN` and there is no encoder), restarts the service and opens the
-ports in the firewall. Bazzite's recipe alone exits with an error after a good install (its last step
+ports in the firewall. It also starts Gamescope with `--force-composition`: Sunshine's current KMS
+capture corrupts or freezes when a game uses a lower-resolution hardware-scaled direct-scanout plane,
+even though the Steam UI streams normally. Restart Gaming Mode once after installing so that option
+takes effect. Bazzite's recipe alone exits with an error after a good install (its last step
 names a unit the current brew formula does not create) and skips the capabilities when run without a
 terminal, so the installer does not trust its exit code and checks the result instead. Re-running the
 installer keeps the install and only repeats those checks; `ujust setup-sunshine update` updates
@@ -60,10 +63,11 @@ software**. That works, with two consequences:
 Sunshine captures the console's real output: the frames gamescope sends to the TV. There is no second
 head and no virtual display, so:
 
-* **The TV must be connected.** gamescope needs an output to run at all; with nothing on the
-  DisplayPort/HDMI there is no Gaming Mode session, and nothing to capture. A TV that is *connected
-  but switched off* usually still counts as connected (the link stays up on most sets), but some
-  drop the link when off, and then gamescope loses its output. A cheap **HDMI dummy plug** (an EDID
+* **The TV must be connected, but it can usually be switched off.** gamescope needs an output to run
+  at all; with nothing on the DisplayPort/HDMI there is no Gaming Mode session, and nothing to
+  capture. A TV that is connected but switched off usually still counts as connected (the link stays
+  up on most sets), but some drop the link when off, and then gamescope loses its output. A cheap
+  **HDMI dummy plug** (an EDID
   emulator, a few euros) in the second port is the usual fix for a headless box, and is the fallback if
   your TV misbehaves.
 * **Resolution follows the TV.** The stream is what the TV gets (1080p by default here, see

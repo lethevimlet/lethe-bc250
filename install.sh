@@ -168,6 +168,16 @@ step_sunshine() {
     mkdir -p "$(dirname "$conf")"
     grep -q '^capture *= *kms' "$conf" 2>/dev/null || { sed -i '/^capture *=/d' "$conf" 2>/dev/null; echo "capture = kms" >>"$conf"; }
 
+    # Sunshine's KMS capture corrupts hardware-scaled direct-scanout planes (typically when a
+    # game renders below the TV's native resolution). Keep Gamescope compositing the full frame.
+    local gamescope_conf=$HOME/.config/gamescope-session-plus/sessions.d/ogui-steam
+    mkdir -p "$(dirname "$gamescope_conf")"
+    if ! grep -qxF 'GAMESCOPE_BIN="/usr/bin/gamescope --force-composition"' "$gamescope_conf" 2>/dev/null; then
+        sed -i '/^GAMESCOPE_BIN=/d' "$gamescope_conf" 2>/dev/null || true
+        printf '%s\n' '# Sunshine KMS capture needs composed frames when games use scaled scanout.' \
+            'GAMESCOPE_BIN="/usr/bin/gamescope --force-composition"' >>"$gamescope_conf"
+    fi
+
     # the formula's unit (After=graphical-session, Restart=on-failure); restart so it runs with the caps
     brew services start sunshine >/dev/null 2>&1 || true
     local unit; unit=$(systemctl --user list-units --all --no-legend '*unshine*.service' | awk '{print $1}' | head -1)
@@ -211,7 +221,7 @@ if is_bc250; then
     todo+=("The ESP32 firmware is built and flashed from another PC: run this same installer there")
     todo+=("Config lives in /etc/bc250-tune/config; 'sudo bc250-tune menu' or the Decky plugin to change it")
     todo+=("Quieter idle with 4-pin PWM fans: 'sudo bc250-tune set fan-curve on' (off by default; BIOS fan mode not Full Speed)")
-    [[ " ${CHOSEN[*]} " == *" sunshine "* ]] && todo+=("Sunshine: open https://<console-ip>:47990 from another device, set a user and password, then pair Moonlight (PIN). It streams what the TV shows, so the TV must be connected and on; no stream while the console is asleep. https://lethevimlet.github.io/lethe-bc250/streaming.html")
+    [[ " ${CHOSEN[*]} " == *" sunshine "* ]] && todo+=("Sunshine: restart Gaming Mode once, then open https://<console-ip>:47990 from another device, set a user and password, and pair Moonlight (PIN). The TV must stay connected but can usually be switched off; no stream while the console is asleep. https://lethevimlet.github.io/lethe-bc250/streaming.html")
     sens=$(sudo /usr/local/bin/bc250-tune status --json 2>/dev/null | grep -o '"sensor":"[a-z-]*"' | cut -d'"' -f4 || true)
     case "$sens" in
         no-chip) todo+=("NOTE: this board's Super I/O does not answer, so there is no fan speed reading (HUD shows FAN n/a) and no fan curve / quiet fans. Usual cause: the ESP32 sense wire on TPMS1 sits on, or touches, an LPC pin instead of the 3.3 V pin. https://lethevimlet.github.io/lethe-bc250/power-page.html") ;;
