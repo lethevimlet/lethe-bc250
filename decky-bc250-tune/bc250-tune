@@ -27,7 +27,7 @@ set -uo pipefail
 unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-VERSION="1.4.3"
+VERSION="1.4.4"
 CONF_DIR=/etc/bc250-tune
 CONF="$CONF_DIR/config"
 STATE_DIR=/run/bc250-tune
@@ -356,8 +356,10 @@ die_temp_c() {   # hotter of CPU (k10temp) and GPU (amdgpu) dies, or "" if neith
 }
 fan_daemon() {
     need_root; load_conf
-    local h n rpm0 duty last=-1 t ticks=0 stall=0 target pct
-    read -r h n <<<"$(fan_channel)" || { log "FAN: no controllable fan header (nct6687 driver loaded?), nothing to do"; exit 0; }
+    local h n channel rpm0 duty last=-1 t ticks=0 stall=0 target pct
+    channel=$(fan_channel) || { log "FAN: no controllable fan header (nct6687 driver loaded?), nothing to do"; exit 0; }
+    read -r h n <<<"$channel"
+    [ -n "$h" ] && [ -n "$n" ] || { log "FAN: no controllable fan header (nct6687 driver loaded?), nothing to do"; exit 0; }
     [ -n "$(die_temp_c)" ] || { log "FAN: no die temperature sensor, leaving the BIOS curve"; exit 0; }
     trap 'echo 2 > "$h/pwm${n}_enable" 2>/dev/null; log "FAN: back to the BIOS curve"' EXIT
     # baseline under the BIOS curve (the header may still be at a low manual duty from a previous run)
