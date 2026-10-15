@@ -29,9 +29,10 @@ only the 5 s hold is left. The Sleep plugin must be installed for sleep; a shutd
 
 The page at `http://<esp32-ip>` (the IP the router reserves for the ESP32; `http://bc250.local` also
 works where the network resolves mDNS) is served by the ESP32 itself, with no
-internet dependency. It shows the state (`OFF`, `STARTING`, `RUNNING`, `STOPPING`) with the ESP32's
-uptime, a **Power on** button that is enabled only when off, and a **Force off** button that is enabled
-only when running. The footer shows the Wi-Fi signal, whether OTA is armed (`OTA ready` only while
+internet dependency. It shows the state (`OFF`, `STARTING`, `RUNNING`, `STOPPING`) and, while the
+console is awake and its API answers, the console's Linux uptime. Uptime is hidden while off,
+starting, stopping or in fake sleep. A **Power on** button is enabled only when off, and a **Force off**
+button only when running. The footer shows the Wi-Fi signal, whether OTA is armed (`OTA ready` only while
 off), the sense line (`HIGH` while the BC-250 reports alive), and the IP and MAC, the latter for the
 router's DHCP reservation. It polls `/rest/status` every two seconds while the tab is visible.
 

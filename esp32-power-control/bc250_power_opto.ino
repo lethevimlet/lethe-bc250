@@ -473,7 +473,7 @@ function showState(s){
 async function poll(){
  try{const r=await fetch('/rest/status'),d=await r.json();
   showState(d.state);
-  $('up').textContent=hms(d.uptime);
+  if(d.state!='RUNNING')$('up').textContent='';
   $('rssi').textContent='RSSI '+d.rssi+' dBm';
   $('sense').textContent='sense '+(d.sense?'HIGH':'LOW');
   $('ota').textContent=d.ota?'OTA ready':'OTA locked';
@@ -603,10 +603,10 @@ function setOk(b){$('con').classList.toggle('ok',b);document.querySelector('.car
 function setRunning(on){
  if(on==running)return;running=on;$('con').classList.toggle('show',on);
  if(ct){clearInterval(ct);ct=null}
- if(on){cpoll();ct=setInterval(cpoll,5000)}else setOk(false);
+ if(on){cpoll();ct=setInterval(cpoll,5000)}else{setOk(false);$('up').textContent=''}
 }
 function noCon(msg){setOk(false);$('cst').textContent='offline';$('nc').textContent=msg;
- conState=null;if(running)showState('RUNNING')}
+ conState=null;$('up').textContent='';if(running)showState('RUNNING')}
 async function cpoll(){
  if(!running||document.hidden)return;
  if(!api){noCon('No bc250-api address is set.');return}
@@ -627,6 +627,7 @@ function loadPanel(){return new Promise(res=>{
  document.head.appendChild(s)})}
 function render(d){
  asleep=!!d.asleep;conState=asleep?'SLEEP':d.game_running?'RUNNING':'IDLE';showState('RUNNING');
+ $('up').textContent=!asleep&&Number.isFinite(d.uptime_s)?hms(d.uptime_s):'';
  const b=$('slp');b.textContent=asleep?'Wake':'Sleep';b.className=asleep?'wake':'';
 }
 function setBusy(b){if(panel)panel.busy(b)}
