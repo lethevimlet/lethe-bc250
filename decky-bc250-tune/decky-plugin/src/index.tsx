@@ -31,6 +31,7 @@ const getStatus = callable<[], Status | null>("status");
 const setOption = callable<[key: string, value: string], SetResult>("set_option");
 const warmReboot = callable<[], SetResult>("reboot");
 const restartSession = callable<[], SetResult>("restart_session");
+const killGames = callable<[], SetResult>("kill_games");
 
 const opt = (data: number | string, label: string) => ({ data, label });
 
@@ -235,6 +236,11 @@ function Content() {
         <PanelSectionRow>
           <ButtonItem layout="below" disabled={busy} onClick={() => runAction("session restart", restartSession)}>
             Restart gaming session (closes game)
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={busy} onClick={() => runAction("kill games", killGames)}>
+            Kill running game / emulator
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>

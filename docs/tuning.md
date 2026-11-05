@@ -6,7 +6,10 @@ nav_order: 5
 # Tuning: bc250-tune
 All the tuning lives in one script, [`decky-bc250-tune/bc250-tune`](https://github.com/lethevimlet/lethe-bc250/tree/main/decky-bc250-tune/bc250-tune), with a
 **Decky Loader plugin** ([`decky-bc250-tune/decky-plugin/`](https://github.com/lethevimlet/lethe-bc250/tree/main/decky-bc250-tune/decky-plugin/)) that puts the same
-switches into Steam's Quick Access menu (the `…` button) so nothing needs Desktop Mode. The folder has
+switches into Steam's Quick Access menu (the `…` button) so nothing needs Desktop Mode. The panel
+also carries **Kill running game / emulator**, which terminates anything launched through the
+`~/Applications` wrappers (emulators, native ports, Battle.net) when one keeps running in the
+background with no window to close. The folder has
 its own [README](https://github.com/lethevimlet/lethe-bc250/tree/main/decky-bc250-tune/README.md) with every option; this is the summary.
 
 <p align="center">

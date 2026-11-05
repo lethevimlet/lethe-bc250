@@ -5,7 +5,10 @@ Part of [lethe-bc250](../README.md); this folder is self-contained and can be co
 One script to switch every worthwhile tweak on an **AMD BC-250** running **Bazzite** (the
 [62fixolab patched images](https://github.com/62fixolab/Latest-Bazzite-AMD-BC-250-Patched-Images)),
 plus a **Decky Loader plugin** so the same switches live in the Steam Quick Access menu (the `…`
-button / Xbox guide + A) and can be flipped without leaving Gaming Mode.
+button / Xbox guide + A) and can be flipped without leaving Gaming Mode. The panel also has a
+**Kill running game / emulator** button that terminates any game launched through the
+`~/Applications` wrappers (emulators, native ports, Bloodborne, Battle.net) — the way out when
+one keeps running behind Big Picture with no window to close, without a session restart.
 
 ```
 $ sudo bc250-tune status
