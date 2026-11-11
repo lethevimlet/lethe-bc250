@@ -44,7 +44,9 @@ depend on each other.
   when the fans do not follow PWM. Anything that reboots at boot (`CORES_AUTO_REBOOT`) has a persistent
   stamp so it can never loop.
 * **One owner per knob.** The fan daemon leaves the header alone while the Sleep plugin's state file
-  exists; the Sleep plugin restores what it found. `bc250-tune` disables the image's own CU service
+  has a `fan` entry (the plugin quieted the fans); asleep with `"fan": null` (quiet fans off, or its
+  guard handed the fan back) the curve keeps running, because a game can still be running hot behind
+  a fake sleep. The Sleep plugin restores what it found. `bc250-tune` disables the image's own CU service
   and owns the CU table. Do not add a second writer for the governor config, the CU table, the core
   mask or the fan header.
 * **Rebuild `dist/`.** Plugin frontends are prebuilt and committed. After editing `src/index.tsx`:
