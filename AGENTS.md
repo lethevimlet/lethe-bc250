@@ -12,6 +12,7 @@ depend on each other.
 | `decky-bc250-tune/bc250-tune` | one bash script: every tuning switch, the boot-time re-apply (`apply --boot`), the fan-curve daemon (`fan-daemon`), `status --json` | the console, as root |
 | `decky-bc250-tune/decky-plugin/` | Decky plugin that only calls `bc250-tune`; `src/index.tsx` → `dist/index.js` (committed) | the console |
 | `decky-bc250-sleep/` | Decky plugin: fake sleep, wake on input, quiet fans, control socket for the API; `main.py` + `src/index.tsx` → `dist/index.js` (committed) | the console |
+| `decky-bc250-input/` | Decky plugin: phone keyboard and touchpad (virtual uinput keyboard and mouse, web page and WebSocket on port 8251); `main.py` + `py_modules/bc250input/` + `src/index.tsx` → `dist/index.js` (committed) | the console |
 | `bc250-api/` | REST service (Python stdlib) on port 8250: stats, fps from gamescope's stats pipe, tune switches, sleep/wake, poweroff; `panel.js` = the console part of the ESP32 page, served at `/panel.js` | the console |
 | `esp32-power-control/` | ESP32-C3 sketch (`bc250_power_opto.ino`, the web page is a raw string inside it) and `flash.sh` | the ESP32; `flash.sh` on a laptop |
 | `install.sh` | the `curl \| bash` guided installer; its `sunshine` item is the only one without code of its own here (Bazzite's brew build, plus the fixes in `step_sunshine`) | console or laptop |

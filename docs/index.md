@@ -69,11 +69,12 @@ reference this guide leans on. Start there if something here is not covered.
 2. [Hardware preparation](hardware.md) — heatsink lid, power cable
 3. [Install Bazzite and the 62fixolab BC-250 image](os.md)
 4. [Tuning: `bc250-tune`](tuning.md) — VRAM split, clocks, 40 CU, 8 cores, HUD, resolution, Steam menu plugin, fake sleep plugin
-5. [Stream with Moonlight](streaming.md) — Sunshine on the console, and what it can capture
-6. [Soft power control with an ESP32](power.md) — circuit, flashing, OTA, web page
-7. [3D-printed case](case.md)
-8. [Things we learned](lessons.md)
-9. [Credits](credits.md)
+5. [Phone keyboard and touchpad](input.md) — type and move the mouse from your phone (BC-250 Input plugin)
+6. [Stream with Moonlight](streaming.md) — Sunshine on the console, and what it can capture
+7. [Soft power control with an ESP32](power.md) — circuit, flashing, OTA, web page
+8. [3D-printed case](case.md)
+9. [Things we learned](lessons.md)
+10. [Credits](credits.md)
 
 ---
 

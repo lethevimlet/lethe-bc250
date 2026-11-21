@@ -1,0 +1,11 @@
+{
+  "name": "BC-250 Input",
+  "author": "lethe-bc250 contributors",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["bc250", "keyboard", "mouse", "touchpad", "chat", "root"],
+    "description": "Use your phone as a keyboard and touchpad for the BC-250: type or dictate into the game, move the mouse, click and scroll.",
+    "image": ""
+  }
+}

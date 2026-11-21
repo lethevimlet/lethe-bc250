@@ -86,6 +86,7 @@ The whole build, in order:
 | [`install.sh`](install.sh) | the guided installer behind the one-liner |
 | [`decky-bc250-tune/`](decky-bc250-tune/) | `bc250-tune`, its boot service and fan daemon, and the Tune plugin |
 | [`decky-bc250-sleep/`](decky-bc250-sleep/) | the Sleep plugin |
+| [`decky-bc250-input/`](decky-bc250-input/) | the Input plugin: phone keyboard and touchpad |
 | [`bc250-api/`](bc250-api/) | the REST service and the console panel it serves to the ESP32 page |
 | [`esp32-power-control/`](esp32-power-control/) | the ESP32 firmware and `flash.sh` (USB and over-the-air) |
 | [`printed-case/`](printed-case/) | the STL files |

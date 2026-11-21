@@ -12,15 +12,15 @@
 # the console: OTA only arms while the console is off). Re-run it any time: every step is idempotent
 # and re-running is the update path.
 #
-# Options (non-interactive):  --all | --only tune,decky,tune-plugin,sleep-plugin,api,sunshine,esp32
+# Options (non-interactive):  --all | --only tune,decky,tune-plugin,sleep-plugin,input-plugin,api,sunshine,esp32
 #                             --dir PATH (checkout location, default ~/lethe-bc250)  --no-update
 set -euo pipefail
 
 usage() { cat <<'EOT'
 lethe-bc250 guided installer
   curl -fsSL https://raw.githubusercontent.com/lethevimlet/lethe-bc250/main/install.sh | bash
-  ./install.sh [--all | --only tune,decky,tune-plugin,sleep-plugin,api,sunshine,esp32] [--dir PATH] [--no-update]
-On a BC-250: bc250-tune + boot services, Decky Loader, the Tune and Sleep plugins, bc250-api, Sunshine.
+  ./install.sh [--all | --only tune,decky,tune-plugin,sleep-plugin,input-plugin,api,sunshine,esp32] [--dir PATH] [--no-update]
+On a BC-250: bc250-tune + boot services, Decky Loader, the Tune, Sleep and Input plugins, bc250-api, Sunshine.
 On any other machine: the ESP32 firmware build/flash helper.
 EOT
 }
@@ -77,14 +77,15 @@ cd "$DIR"
 # ------------------------------------------------------------------ what can be installed here
 declare -A DESC=(
     [tune]="bc250-tune: VRAM split, GPU range, CU / core unlocks, fan curve, HUD, resolution + boot services"
-    [decky]="Decky Loader (needed by the two plugins; installed with ujust if missing)"
+    [decky]="Decky Loader (needed by the plugins; installed with ujust if missing)"
     [tune-plugin]="BC-250 Tune plugin for the Steam Quick Access menu"
     [sleep-plugin]="BC-250 Sleep plugin: fake sleep, wake on any button, quiet fans"
+    [input-plugin]="BC-250 Input plugin: use your phone as a keyboard and touchpad"
     [api]="bc250-api: stats and switches over the LAN (feeds the ESP32 page)"
     [sunshine]="Sunshine: stream Gaming Mode to Moonlight on a phone, laptop or TV box (Bazzite's brew build, KMS capture)"
     [esp32]="ESP32 power controller firmware: build, flash over USB, or update over the air"
 )
-if is_bc250; then ITEMS=(tune decky tune-plugin sleep-plugin api sunshine); else ITEMS=(esp32); fi
+if is_bc250; then ITEMS=(tune decky tune-plugin sleep-plugin input-plugin api sunshine); else ITEMS=(esp32); fi
 
 case $MODE in
     all) CHOSEN=("${ITEMS[@]}") ;;
@@ -118,6 +119,8 @@ install_plugin() {   # name  source-dir
     local name=$1 src=$2
     sudo mkdir -p "$PLUGINS/$name"
     sudo cp -r "$src/plugin.json" "$src/package.json" "$src/main.py" "$src/LICENSE" "$src/dist" "$PLUGINS/$name/"
+    [ -d "$src/py_modules" ] && sudo cp -r "$src/py_modules" "$PLUGINS/$name/"
+    sudo rm -f "$PLUGINS/$name"/dist/*.map
     sudo chown -R root:root "$PLUGINS/$name"
     restart_loader=1
 }
@@ -134,6 +137,7 @@ step_decky() {
 
 step_tune_plugin()  { install_plugin bc250-tune  "$DIR/decky-bc250-tune/decky-plugin"; }
 step_sleep_plugin() { install_plugin bc250-sleep "$DIR/decky-bc250-sleep"; }
+step_input_plugin() { install_plugin bc250-input "$DIR/decky-bc250-input"; }
 step_api()          { sudo "$DIR/bc250-api/install.sh"; }
 step_esp32()        { "$DIR/esp32-power-control/flash.sh"; }
 
@@ -221,6 +225,7 @@ if is_bc250; then
     todo+=("The ESP32 firmware is built and flashed from another PC: run this same installer there")
     todo+=("Config lives in /etc/bc250-tune/config; 'sudo bc250-tune menu' or the Decky plugin to change it")
     todo+=("Quieter idle with 4-pin PWM fans: 'sudo bc250-tune set fan-curve on' (off by default; BIOS fan mode not Full Speed)")
+    [[ " ${CHOSEN[*]} " == *" input-plugin "* ]] && todo+=("Phone keyboard and touchpad: Quick Access → BC-250 Input, open http://<console-ip>:8251/ on a phone on the same network or scan the QR code, and bookmark it. https://lethevimlet.github.io/lethe-bc250/input.html")
     [[ " ${CHOSEN[*]} " == *" sunshine "* ]] && todo+=("Sunshine: restart Gaming Mode once, then open https://<console-ip>:47990 from another device, set a user and password, and pair Moonlight (PIN). The TV must stay connected but can usually be switched off; no stream while the console is asleep. https://lethevimlet.github.io/lethe-bc250/streaming.html")
     sens=$(sudo /usr/local/bin/bc250-tune status --json 2>/dev/null | grep -o '"sensor":"[a-z-]*"' | cut -d'"' -f4 || true)
     case "$sens" in

@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>BC-250 Input</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #171b22; --panel2: #1f252e; --line: #2a313c; --line2: #38414e;
+    --text: #e8ecf1; --muted: #8b95a3; --accent: #3d8bfd; --accent-ink: #fff;
+    --ok: #3ccf91; --warn: #f5b942; --err: #ff6b6b; --pad: #12161c;
+    --r: 14px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+    padding: env(safe-area-inset-top) 0 0; }
+  button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 10px 14px; min-height: 44px; cursor: pointer; user-select: none;
+    -webkit-user-select: none; touch-action: manipulation; }
+  button:active, button.down { background: var(--line2); }
+  button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px 8px; }
+  header h1 { font-size: 19px; margin: 0; letter-spacing: .2px; }
+  .status { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 13px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(60,207,145,.18); }
+  .dot.err { background: var(--err); }
+  header button { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+
+  main { flex: 1; min-height: 0; position: relative; }
+  .view { position: absolute; inset: 0; display: none; }
+  .view.on { display: flex; flex-direction: column; }
+  #chatView { overflow-y: auto; padding: 4px 16px 20px; -webkit-overflow-scrolling: touch; }
+  /* The view is a fixed-height flex column: without this the scrollable chip row shrinks to nothing. */
+  #chatView > * { flex-shrink: 0; }
+
+  /* ---- chat ---- */
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 12px; margin: 0 -2px;
+    scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: 0 0 auto; border-radius: 999px; padding: 7px 14px; min-height: 38px; position: relative; }
+  .chip.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .chip small { color: var(--muted); margin-left: 5px; font-size: 12px; }
+  .chip.sel small { color: #dbe8ff; }
+  .x { display: none; position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--err); color: #fff; font-size: 14px; line-height: 22px; text-align: center; }
+  .editing .x { display: block; }
+  .editing .chips { padding-top: 10px; }
+  .compose { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; }
+  .compose:focus-within { border-color: var(--accent); }
+  .prefix { color: var(--accent); font-weight: 600; font-size: 14px; min-height: 20px; }
+  textarea { width: 100%; min-height: 96px; resize: none; background: transparent; color: var(--text);
+    border: 0; outline: 0; font-size: 18px; line-height: 1.4; font-family: inherit; padding: 2px 0; }
+  .meta { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+  .meta .over { color: var(--err); font-weight: 600; }
+  .warn { color: var(--warn); font-size: 13px; margin-top: 4px; display: none; }
+  .actions { display: flex; gap: 10px; margin-top: 10px; }
+  .send { flex: 1; background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700;
+    font-size: 18px; min-height: 54px; }
+  .send:disabled { background: var(--panel2); border-color: var(--line); color: var(--muted); }
+  label.toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; }
+  label.toggle input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 22px 0 8px;
+    display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+  h2 button { min-height: 30px; padding: 3px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; }
+  .phrases { display: flex; flex-wrap: wrap; gap: 8px; }
+  .phrase { position: relative; }
+  .history { display: flex; flex-direction: column; gap: 6px; }
+  .history button { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: var(--panel); }
+  .empty { color: var(--muted); font-size: 14px; }
+  .help { color: var(--muted); font-size: 13px; margin-top: 22px; }
+
+  /* ---- touchpad ---- */
+  #padView { padding: 0 12px 10px; gap: 10px; }
+  #pad { flex: 1; min-height: 120px; position: relative; background: var(--pad); border: 1px solid var(--line);
+    border-radius: 18px; touch-action: none; overflow: hidden; user-select: none; -webkit-user-select: none;
+    background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 22px 22px; }
+  #pad.active { border-color: var(--accent); }
+  #pad.drag { border-color: var(--warn); }
+  .padhint { position: absolute; inset: auto 0 14px; text-align: center; color: var(--muted); font-size: 13px;
+    pointer-events: none; line-height: 1.6; padding: 0 12px; transition: opacity .3s; }
+  #pad.used .padhint { opacity: 0; }
+  .padnote { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    text-align: center; padding: 24px; color: var(--warn); font-size: 15px; background: rgba(14,17,22,.82); }
+  .padnote.on { display: flex; }
+  .touch { position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%;
+    border: 2px solid var(--accent); opacity: .55; pointer-events: none; }
+  .mbtns { display: grid; grid-template-columns: 1fr 64px 1fr; gap: 8px; }
+  .mbtns button { min-height: 58px; font-weight: 600; touch-action: none; }
+  .keys { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+  .keys button { min-height: 46px; padding: 6px 0; font-size: 15px; touch-action: none; }
+  .padbar { display: flex; gap: 8px; }
+  .padbar button { flex: 1; min-height: 40px; font-size: 14px; color: var(--muted); }
+
+  /* ---- tabs ---- */
+  nav { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px);
+    border-top: 1px solid var(--line); background: var(--panel); }
+  nav button { background: transparent; border-color: transparent; color: var(--muted); font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; }
+  nav button.on { background: var(--panel2); border-color: var(--line); color: var(--text); }
+  nav svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
+    stroke-linejoin: round; }
+
+  /* ---- settings sheet ---- */
+  #sheet { position: fixed; inset: 0; display: none; background: rgba(0,0,0,.55); z-index: 5; align-items: flex-end; }
+  #sheet.on { display: flex; }
+  .sheet { width: 100%; background: var(--panel); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
+    padding: 16px 16px calc(env(safe-area-inset-bottom) + 16px); }
+  .sheet h3 { margin: 0 0 10px; font-size: 16px; }
+  .set { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0;
+    border-bottom: 1px solid var(--line); font-size: 15px; }
+  .set:last-of-type { border-bottom: 0; }
+  .set input[type=range] { flex: 1; max-width: 55%; accent-color: var(--accent); }
+  .set input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  .set output { width: 40px; text-align: right; color: var(--muted); font-size: 13px; }
+  .sheet .done { width: 100%; margin-top: 10px; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+
+  #toast { position: fixed; left: 14px; right: 14px; bottom: calc(env(safe-area-inset-bottom) + 76px); z-index: 6;
+    padding: 12px 14px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line);
+    opacity: 0; transform: translateY(10px); transition: all .2s; pointer-events: none; font-size: 15px; }
+  #toast.show { opacity: 1; transform: none; }
+  #toast.ok { border-color: var(--ok); } #toast.err { border-color: var(--err); }
+</style>
+</head>
+<body>
+<header>
+  <h1>BC-250 Input</h1>
+  <div class="status"><span id="dot" class="dot"></span><span id="conn">Connecting…</span></div>
+  <button id="editBtn" class="ghost">Edit</button>
+  <button id="setBtn" class="ghost" aria-label="Touchpad settings">Settings</button>
+</header>
+
+<main>
+  <section id="chatView" class="view">
+    <div id="chips" class="chips"></div>
+    <div class="compose">
+      <div id="prefix" class="prefix"></div>
+      <textarea id="msg" placeholder="Type or dictate a message…" enterkeyhint="send" autocapitalize="sentences"
+                autocomplete="off" spellcheck="true"></textarea>
+      <div class="meta"><span>Return sends. Close the console's quick menu first.</span><span id="count">0/255</span></div>
+      <div id="warn" class="warn"></div>
+    </div>
+    <div class="actions">
+      <label class="toggle"><input id="enter" type="checkbox" checked> Enter</label>
+      <button id="send" class="send">Send</button>
+    </div>
+
+    <h2>Quick phrases <button id="savePhrase">+ Save text</button></h2>
+    <div id="phrases" class="phrases"></div>
+
+    <h2>Recent</h2>
+    <div id="history" class="history"></div>
+
+    <p class="help">Channel chips add a prefix; tap the selected one again to clear it. Phrases send at once with
+    the selected channel. Recent messages resend exactly as typed. "Enter" off types the text without submitting it.
+    Edit adds or removes chips and phrases.</p>
+  </section>
+
+  <section id="padView" class="view">
+    <div id="pad">
+      <div class="padhint">Move: one finger · Click: tap · Right click: two-finger tap<br>
+        Scroll: two fingers · Drag: tap, then touch and move</div>
+      <div id="padnote" class="padnote">Mouse control is off on the console.<br>Turn it on in Quick Access → BC-250 Input.</div>
+    </div>
+    <div class="mbtns">
+      <button data-btn="l">Left</button>
+      <button data-btn="m" aria-label="Middle button">•</button>
+      <button data-btn="r">Right</button>
+    </div>
+    <div class="keys">
+      <button data-key="esc">Esc</button>
+      <button data-key="tab">Tab</button>
+      <button data-key="left" data-repeat aria-label="Left arrow">←</button>
+      <button data-key="up" data-repeat aria-label="Up arrow">↑</button>
+      <button data-key="down" data-repeat aria-label="Down arrow">↓</button>
+      <button data-key="right" data-repeat aria-label="Right arrow">→</button>
+      <button data-key="backspace" data-repeat aria-label="Backspace">⌫</button>
+      <button data-key="enter" aria-label="Enter">⏎</button>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button id="tabChat" data-tab="chat">
+    <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>Chat</button>
+  <button id="tabPad" data-tab="pad">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 15h18M12 15v6"/></svg>Touchpad</button>
+</nav>
+
+<div id="sheet">
+  <div class="sheet">
+    <h3>Touchpad</h3>
+    <div class="set"><span>Pointer speed</span><input id="sSpeed" type="range" min="0.4" max="4" step="0.1"><output id="oSpeed"></output></div>
+    <div class="set"><span>Acceleration</span><input id="sAccel" type="checkbox"></div>
+    <div class="set"><span>Scroll speed</span><input id="sScroll" type="range" min="0.3" max="3" step="0.1"><output id="oScroll"></output></div>
+    <div class="set"><span>Natural scrolling</span><input id="sNatural" type="checkbox"></div>
+    <div class="set"><span>Tap to click</span><input id="sTap" type="checkbox"></div>
+    <div class="set"><span>Tap, then drag</span><input id="sTapDrag" type="checkbox"></div>
+    <div class="set"><span>Vibrate on click</span><input id="sBuzz" type="checkbox"></div>
+    <button id="sheetDone" class="done">Done</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+  var MAX = 255;
+
+  // localStorage can throw (private mode, blocked storage): everything here must work without it.
+  function load_(k, d) { try { var v = localStorage.getItem("bc250input." + k); return v === null ? d : v; } catch (e) { return d; } }
+  function save_(k, v) { try { localStorage.setItem("bc250input." + k, v); } catch (e) {} }
+
+  // Links from older versions carried a pairing code; drop it so the bookmark is the plain address.
+  if (location.search) try { history.replaceState(null, "", location.pathname); } catch (e) {}
+
+  var $ = function (id) { return document.getElementById(id); };
+  var msg = $("msg"), sendBtn = $("send"), enterBox = $("enter");
+  var state = { chips: [], phrases: [], history: [] };
+  var selected = load_("chip", "");
+  var editing = false, busy = false, httpOk = null;
+  enterBox.checked = load_("enter", "1") !== "0";
+
+  // ---------------------------------------------------------------- common
+  function toast(text, kind) {
+    var t = $("toast");
+    t.textContent = text; t.className = "show " + (kind || "");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(function () { t.className = ""; }, 2200);
+  }
+
+  function api(method, path, body) {
+    var opts = { method: method, headers: { "X-BC250-Input": "1" } };
+    if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+    return fetch(path, opts).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: "HTTP " + r.status }; })
+        .then(function (j) { j._status = r.status; return j; });
+    }).catch(function () { return { ok: false, error: "Can't reach the console. Same Wi-Fi? Plugin on?", _status: 0 }; });
+  }
+
+  function setConn() {
+    var live = sock && sockLive;
+    var ok = live || httpOk === true;
+    $("dot").className = "dot " + (ok ? "ok" : httpOk === false ? "err" : "");
+    $("conn").textContent = live ? "Connected" : ok ? "Connected (no live link)" :
+      httpOk === false ? "Offline" : "Connecting…";
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // ---------------------------------------------------------------- tabs
+  var tab = load_("tab", "chat") === "pad" ? "pad" : "chat";
+  function showTab(t) {
+    tab = t; save_("tab", t);
+    $("chatView").classList.toggle("on", t === "chat");
+    $("padView").classList.toggle("on", t === "pad");
+    $("tabChat").classList.toggle("on", t === "chat");
+    $("tabPad").classList.toggle("on", t === "pad");
+    $("editBtn").style.display = t === "chat" ? "" : "none";
+    $("setBtn").style.display = t === "pad" ? "" : "none";
+    if (t === "pad") { msg.blur(); if (editing) { editing = false; render(); } }
+  }
+  $("tabChat").addEventListener("click", function () { showTab("chat"); });
+  $("tabPad").addEventListener("click", function () { showTab("pad"); });
+
+  // ---------------------------------------------------------------- chat
+  var SMART = { "‘": "'", "’": "'", "‚": "'", "‛": "'", "′": "'",
+    "“": '"', "”": '"', "„": '"', "‟": '"', "″": '"',
+    "–": "-", "—": "-", "―": "-", "−": "-", "‐": "-", "‑": "-",
+    "…": "...", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ",
+    "​": "", "‌": "", "‍": "", "﻿": "", "\n": " ", "\r": " ", "\t": " " };
+
+  // Mirrors the console-side normalisation so the counter and warning are honest.
+  function normalize(text) {
+    var out = "", bad = [];
+    for (var ch of text) {
+      var code = ch.codePointAt(0);
+      if (code >= 0x20 && code <= 0x7e) { out += ch; continue; }
+      if (SMART.hasOwnProperty(ch)) { out += SMART[ch]; continue; }
+      var base = ch.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+      if (base && /^[\x20-\x7e]+$/.test(base)) { out += base; continue; }
+      out += "?"; if (bad.indexOf(ch) < 0) bad.push(ch);
+    }
+    return { text: out, bad: bad };
+  }
+
+  function delBadge(onDel) {
+    var x = el("span", "x", "×");
+    x.addEventListener("click", function (ev) { ev.stopPropagation(); onDel(); });
+    return x;
+  }
+
+  function render() {
+    document.body.classList.toggle("editing", editing);
+    $("editBtn").textContent = editing ? "Done" : "Edit";
+    var chips = $("chips"); chips.textContent = "";
+    var known = false;
+    state.chips.forEach(function (c) {
+      var b = el("button", "chip" + (c.prefix === selected ? " sel" : ""));
+      b.appendChild(document.createTextNode(c.label));
+      b.appendChild(el("small", "", c.prefix.trim()));
+      if (c.prefix === selected) known = true;
+      b.addEventListener("click", function () {
+        if (editing) return;
+        selected = (selected === c.prefix) ? "" : c.prefix;
+        save_("chip", selected);
+        render(); msg.focus();
+      });
+      b.appendChild(delBadge(function () { editList("chips", "remove", { prefix: c.prefix }); }));
+      chips.appendChild(b);
+    });
+    if (!known) selected = "";
+    if (editing) {
+      var add = el("button", "chip", "+ chip");
+      add.addEventListener("click", function () {
+        var p = prompt("Chat prefix (e.g. /3 or /w Thrall)", "/");
+        if (!p || !p.trim()) return;
+        var l = prompt("Label", p.trim()) || p.trim();
+        editList("chips", "add", { prefix: p, label: l });
+      });
+      chips.appendChild(add);
+    }
+    $("prefix").textContent = selected ? selected : "";
+
+    var ph = $("phrases"); ph.textContent = "";
+    if (!state.phrases.length) ph.appendChild(el("div", "empty", "No phrases yet. Type one and tap + Save text."));
+    state.phrases.forEach(function (p) {
+      var b = el("button", "phrase", p);
+      b.addEventListener("click", function () { if (!editing) send(selected + p, true); });
+      b.appendChild(delBadge(function () { editList("phrases", "remove", p); }));
+      ph.appendChild(b);
+    });
+
+    var h = $("history"); h.textContent = "";
+    if (!state.history.length) h.appendChild(el("div", "empty", "Nothing sent yet."));
+    state.history.forEach(function (t) {
+      var b = el("button", "", t);
+      b.addEventListener("click", function () { send(t, true); });
+      h.appendChild(b);
+    });
+    update();
+  }
+
+  function composed() { return normalize(selected + msg.value); }
+
+  function update() {
+    var n = composed();
+    var len = n.text.trim().length;
+    var c = $("count"); c.textContent = len + "/" + MAX; c.className = len > MAX ? "over" : "";
+    var w = $("warn");
+    if (n.bad.length) {
+      w.style.display = "block";
+      w.textContent = "Will type as '?': " + n.bad.join(" ") + "  (only basic English characters)";
+    } else { w.style.display = "none"; }
+    sendBtn.disabled = busy || !msg.value.trim() || len > MAX;
+  }
+
+  function send(text, fromShortcut) {
+    if (busy) return;
+    var n = normalize(text);
+    if (!n.text.trim()) return;
+    if (n.text.trim().length > MAX) { toast("Too long for chat (" + n.text.trim().length + "/" + MAX + ")", "err"); return; }
+    busy = true; update();
+    api("POST", "/api/send", { text: text, enter: enterBox.checked }).then(function (r) {
+      busy = false;
+      if (r.ok) {
+        httpOk = true;
+        if (!fromShortcut) msg.value = "";
+        state.history = r.history || state.history;
+        toast("Sent" + (r.replaced ? " (" + r.replaced + " replaced with ?)" : ""), "ok");
+        render();
+      } else {
+        httpOk = r._status !== 0;
+        toast(r.error || "Failed", "err");
+        update();
+      }
+      setConn();
+    });
+  }
+
+  function editList(kind, action, item) {
+    api("POST", "/api/list", { kind: kind, action: action, item: item }).then(function (r) {
+      if (r.ok) { state = r; render(); } else toast(r.error || "Failed", "err");
+    });
+  }
+
+  function loadState() {
+    api("GET", "/api/state").then(function (r) {
+      httpOk = r.ok;
+      if (r.ok) { state = r; MAX = r.maxChars || MAX; setPointer(r.pointer); render(); connect(); }
+      else toast(r.error || "Failed to load", "err");
+      setConn();
+    });
+  }
+
+  msg.addEventListener("input", update);
+  msg.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      if (!sendBtn.disabled) send(selected + msg.value, false);
+    }
+  });
+  sendBtn.addEventListener("click", function () { send(selected + msg.value, false); });
+  enterBox.addEventListener("change", function () { save_("enter", enterBox.checked ? "1" : "0"); });
+  $("editBtn").addEventListener("click", function () { editing = !editing; render(); });
+  $("savePhrase").addEventListener("click", function () {
+    var t = msg.value.trim();
+    if (!t) { toast("Type the phrase in the box first", "err"); return; }
+    editList("phrases", "add", t);
+  });
+
+  // ---------------------------------------------------------------- live link
+  var sock = null, sockLive = false, retry = 0, retryTimer = null, pointerOn = true;
+  function setPointer(on) { pointerOn = on !== false; $("padnote").classList.toggle("on", !pointerOn); }
+
+  function connect() {
+    if (sock || document.hidden || !window.WebSocket) return;
+    clearTimeout(retryTimer);
+    var s = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/ws");
+    sock = s;
+    s.onmessage = function (m) {
+      try {
+        var j = JSON.parse(m.data);
+        if (j.hello) { sockLive = true; retry = 0; setPointer(j.pointer); setConn(); }
+      } catch (e) {}
+    };
+    s.onclose = function () {
+      if (sock !== s) return;
+      sock = null; sockLive = false; setConn();
+      if (!document.hidden) retryTimer = setTimeout(connect, Math.min(5000, 400 * Math.pow(2, retry++)));
+    };
+  }
+  function disconnect() {
+    clearTimeout(retryTimer);
+    if (sock) { var s = sock; sock = null; sockLive = false; try { s.close(); } catch (e) {} }
+  }
+  setInterval(function () { if (sock && sockLive) sock.send("p"); }, 10000);
+
+  // Commands are queued and sent once per animation frame; motion is accumulated in between so
+  // a slow link never builds up a backlog of stale moves.
+  var queue = [], accX = 0, accY = 0, accV = 0, accH = 0, rafOn = false;
+  function takeMotion() {
+    var mx = Math.trunc(accX), my = Math.trunc(accY), sv = Math.trunc(accV), sh = Math.trunc(accH);
+    if (mx || my) { queue.push("m " + mx + " " + my); accX -= mx; accY -= my; }
+    if (sv || sh) { queue.push("s " + sv + " " + sh); accV -= sv; accH -= sh; }
+  }
+  function flush() {
+    rafOn = false;
+    takeMotion();
+    if (!queue.length) return;
+    if (sock && sockLive && sock.bufferedAmount < 4096) sock.send(queue.join("\n"));
+    queue = [];
+  }
+  function schedule() { if (!rafOn) { rafOn = true; requestAnimationFrame(flush); } }
+  function cmd(c) { takeMotion(); queue.push(c); flush(); }
+
+  // ---------------------------------------------------------------- touchpad settings
+  var cfg = {
+    speed: parseFloat(load_("speed", "1.6")) || 1.6,
+    accel: load_("accel", "1") === "1",
+    scroll: parseFloat(load_("scroll", "1")) || 1,
+    natural: load_("natural", "1") === "1",
+    tap: load_("tap", "1") === "1",
+    tapDrag: load_("tapDrag", "1") === "1",
+    buzz: load_("buzz", "1") === "1"
+  };
+  function bindRange(id, key, out) {
+    var i = $(id); i.value = cfg[key]; $(out).textContent = cfg[key].toFixed(1);
+    i.addEventListener("input", function () { cfg[key] = parseFloat(i.value); $(out).textContent = cfg[key].toFixed(1); save_(key, i.value); });
+  }
+  function bindCheck(id, key) {
+    var i = $(id); i.checked = cfg[key];
+    i.addEventListener("change", function () { cfg[key] = i.checked; save_(key, i.checked ? "1" : "0"); });
+  }
+  bindRange("sSpeed", "speed", "oSpeed"); bindRange("sScroll", "scroll", "oScroll");
+  bindCheck("sAccel", "accel"); bindCheck("sNatural", "natural"); bindCheck("sTap", "tap");
+  bindCheck("sTapDrag", "tapDrag"); bindCheck("sBuzz", "buzz");
+  $("setBtn").addEventListener("click", function () { $("sheet").classList.add("on"); });
+  $("sheetDone").addEventListener("click", function () { $("sheet").classList.remove("on"); });
+  $("sheet").addEventListener("click", function (e) { if (e.target === $("sheet")) $("sheet").classList.remove("on"); });
+
+  function buzz() { if (cfg.buzz && navigator.vibrate) try { navigator.vibrate(8); } catch (e) {} }
+
+  // ---------------------------------------------------------------- touchpad gestures
+  var pad = $("pad");
+  var pts = new Map();      // pointerId -> {x, y, t, dot}
+  var g = null;             // current gesture: {start, maxN, moved, drag}
+  var pendingClick = null, lastTap = null;
+  var TAP_MS = 280, TAP_SLOP = 14, DRAG_WINDOW = 260, SCROLL_K = 3.2;
+
+  function dot(x, y) {
+    var r = pad.getBoundingClientRect(), d = el("div", "touch");
+    d.style.left = (x - r.left) + "px"; d.style.top = (y - r.top) + "px";
+    pad.appendChild(d); return d;
+  }
+
+  pad.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    try { pad.setPointerCapture(e.pointerId); } catch (err) {}
+    pad.classList.add("used", "active");
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY, t: e.timeStamp, dot: dot(e.clientX, e.clientY) });
+    if (!g) {
+      g = { start: e.timeStamp, maxN: 1, moved: 0, drag: false };
+      if (pendingClick && lastTap && e.timeStamp - lastTap.t < DRAG_WINDOW &&
+          Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 60) {
+        clearTimeout(pendingClick); pendingClick = null;
+        g.drag = true; pad.classList.add("drag");
+        cmd("b l 1");
+      }
+    } else {
+      g.maxN = Math.max(g.maxN, pts.size);
+    }
+  });
+
+  pad.addEventListener("pointermove", function (e) {
+    var p = pts.get(e.pointerId);
+    if (!p || !g) return;
+    var dx = e.clientX - p.x, dy = e.clientY - p.y, dt = Math.max(1, e.timeStamp - p.t);
+    p.x = e.clientX; p.y = e.clientY; p.t = e.timeStamp;
+    var r = pad.getBoundingClientRect();
+    p.dot.style.left = (e.clientX - r.left) + "px"; p.dot.style.top = (e.clientY - r.top) + "px";
+    g.moved += Math.abs(dx) + Math.abs(dy);
+    if (pts.size === 1 && g.maxN === 1 || g.drag) {
+      var v = Math.hypot(dx, dy) / dt;  // px per ms
+      var gain = cfg.speed * (cfg.accel ? 0.6 + Math.min(v, 2.5) * 0.8 : 1);
+      accX += dx * gain; accY += dy * gain;
+    } else if (pts.size === 2) {
+      // Each finger reports its own move; half of each is the average of the two.
+      var k = SCROLL_K * cfg.scroll / 2;
+      accV += (cfg.natural ? dy : -dy) * k;
+      accH += (cfg.natural ? -dx : dx) * k;
+    }
+    schedule();
+  });
+
+  function end(e) {
+    var p = pts.get(e.pointerId);
+    if (!p) return;
+    p.dot.remove();
+    pts.delete(e.pointerId);
+    if (pts.size || !g) return;
+    var gg = g; g = null;
+    pad.classList.remove("active", "drag");
+    var tapped = e.type === "pointerup" && e.timeStamp - gg.start < TAP_MS && gg.moved < TAP_SLOP * gg.maxN;
+    if (gg.drag) {
+      cmd("b l 0");
+      if (tapped) { cmd("c l"); buzz(); }  // tap, tap = double click
+      return;
+    }
+    if (!tapped || !cfg.tap) { flush(); return; }
+    if (gg.maxN === 1) {
+      buzz();
+      if (cfg.tapDrag) {
+        // Hold the click briefly: a touch that follows within the window turns it into a drag.
+        lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+        pendingClick = setTimeout(function () { pendingClick = null; cmd("c l"); }, DRAG_WINDOW);
+      } else cmd("c l");
+    } else if (gg.maxN === 2) { buzz(); cmd("c r"); }
+    else { buzz(); cmd("c m"); }
+  }
+  pad.addEventListener("pointerup", end);
+  pad.addEventListener("pointercancel", end);
+  pad.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  function resetPad() {
+    pts.forEach(function (p) { p.dot.remove(); });
+    pts.clear();
+    if (g && g.drag) cmd("b l 0");
+    g = null;
+    if (pendingClick) { clearTimeout(pendingClick); pendingClick = null; }
+    pad.classList.remove("active", "drag");
+  }
+
+  // Hold-able mouse buttons: press on touch, release when the finger lifts (anywhere).
+  Array.prototype.forEach.call(document.querySelectorAll("[data-btn]"), function (b) {
+    var held = false;
+    b.addEventListener("pointerdown", function (e) {
+      e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (err) {}
+      held = true; b.classList.add("down"); buzz(); cmd("b " + b.dataset.btn + " 1");
+    });
+    function up() { if (!held) return; held = false; b.classList.remove("down"); cmd("b " + b.dataset.btn + " 0"); }
+    b.addEventListener("pointerup", up); b.addEventListener("pointercancel", up);
+    b.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  });
+
+  // Keys: one press per touch; arrows and backspace repeat while held.
+  Array.prototype.forEach.call(document.querySelectorAll("[data-key]"), function (b) {
+    var t1 = null, t2 = null;
+    function stop() { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; b.classList.remove("down"); }
+    b.addEventListener("pointerdown", function (e) {
+      e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (err) {}
+      b.classList.add("down"); buzz(); cmd("k " + b.dataset.key);
+      if (b.hasAttribute("data-repeat")) t1 = setTimeout(function () { t2 = setInterval(function () { cmd("k " + b.dataset.key); }, 70); }, 420);
+    });
+    b.addEventListener("pointerup", stop); b.addEventListener("pointercancel", stop);
+    b.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  });
+
+  // ---------------------------------------------------------------- lifecycle
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { resetPad(); disconnect(); } else loadState();
+  });
+  window.addEventListener("pagehide", function () { resetPad(); disconnect(); });
+
+  showTab(tab);
+  setConn();
+  loadState();
+})();
+</script>
+</body>
+</html>
