@@ -13,7 +13,7 @@
  */
 (function () {
   'use strict';
-  var VERSION = '1.1.0';
+  var VERSION = '1.2.1';
   var CSS = [
     '.p-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}',
     '.p-tile{background:#22262e;border-radius:11px;padding:10px 12px;min-width:0}',
@@ -33,6 +33,8 @@
     '.p-seg button.sel{background:#3a4150;color:#fff}',
     '.p-tune select{flex:none;min-height:42px;padding:6px 10px;border:1px solid #2b3039;border-radius:9px;background:#22262e;color:#e6e8eb;font:inherit;font-size:.85em;max-width:48%}',
     '.p-busy .p-tune,.p-busy .p-pend{opacity:.5;pointer-events:none}',
+    '.p-link{display:none;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;min-height:44px;padding:8px 12px;border-radius:11px;background:#22262e;color:#e6e8eb;font-weight:600;font-size:.9em;text-decoration:none}',
+    '.p-link.show{display:flex}.p-link:active{background:#3a4150}',
     '.p-ver{margin-top:10px;color:#6d747e;font-size:.66em;text-align:right}'
   ].join('\n');
 
@@ -80,9 +82,21 @@
     });
     var pend = document.createElement('div'); pend.className = 'p-pend';
     pend.innerHTML = '<span id="p-pendt"></span><div class="b"><button id="p-rb">Warm reboot</button><button id="p-rs">Restart session</button></div>';
+    // BC-250 Input (Decky plugin) serves its phone page on the same host, port 8251. Shown only while
+    // that port answers: an opaque no-cors probe resolves when the server is up, rejects otherwise.
+    var input = document.createElement('a'); input.className = 'p-link'; input.target = '_blank'; input.rel = 'noopener';
+    input.textContent = 'Phone keyboard & touchpad';
+    try { var iu = new URL(api); iu.port = '8251'; iu.pathname = '/'; iu.search = ''; input.href = iu.href; } catch (e) { input.href = ''; }
+    var probedAt = 0;
+    function probeInput() {
+      if (!input.href || Date.now() - probedAt < 30000) return;
+      probedAt = Date.now();
+      fetch(input.href + 'healthz', { mode: 'no-cors', cache: 'no-store' })
+        .then(function () { input.classList.add('show'); }, function () { input.classList.remove('show'); });
+    }
     var tune = document.createElement('div'); tune.className = 'p-tune';
     var ver = document.createElement('div'); ver.className = 'p-ver'; ver.textContent = 'panel ' + VERSION + ' from the console';
-    root.appendChild(tiles); root.appendChild(pend); root.appendChild(tune); root.appendChild(ver);
+    root.appendChild(input); root.appendChild(tiles); root.appendChild(pend); root.appendChild(tune); root.appendChild(ver);
     var $ = function (id) { return root.querySelector('#' + id); };
 
     Object.keys(OPTS).forEach(function (k) {
@@ -150,7 +164,7 @@
       $('p-rb').style.display = on(p.reboot) ? '' : 'none'; $('p-rs').style.display = on(p.session_restart) ? '' : 'none';
     }
     return {
-      update: function (d) { tilesUpdate(d); tuneUpdate(d.tune); },
+      update: function (d) { tilesUpdate(d); tuneUpdate(d.tune); probeInput(); },
       busy: function (b) { pageBusy = !!b; root.classList.toggle('p-busy', busy || pageBusy); }
     };
   }

@@ -46,7 +46,8 @@ through `bc250-api` (the ESP32 cuts the PSU once the board reports down), Sleep 
 fake sleep. Everything below the **Console** header (the tiles, the pending notice, the switches)
 is `panel.js`, served by `bc250-api` and loaded by the page once the API answers, so that part
 updates with the console and never needs a reflash; the firmware keeps only the state row, the four
-buttons, the address editor and the offline notice. Tiles show FPS and the
+buttons, the address editor and the offline notice. While the [BC-250 Input plugin](input.md) is on, the panel starts with a **Phone keyboard &
+touchpad** button that opens its page (`http://<console-ip>:8251/`) in a new tab. Tiles show FPS and the
 running game, GPU clock and temperature, CPU temperature with cores and clock, SoC and estimated
 total power, fan rpm and VRAM use. Below them are the `bc250-tune` switches (compute units, cores,
 HUD, GPU floor and ceiling, VRAM split, resolution): a tap runs `bc250-tune set` on the console, and
