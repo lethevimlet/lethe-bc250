@@ -73,9 +73,6 @@
   h2 button { min-height: 30px; padding: 3px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; }
   .phrases { display: flex; flex-wrap: wrap; gap: 8px; }
   .phrase { position: relative; }
-  .history { display: flex; flex-direction: column; gap: 6px; }
-  .history button { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    background: var(--panel); }
   .empty { color: var(--muted); font-size: 14px; }
   .help { color: var(--muted); font-size: 13px; margin-top: 22px; }
 
@@ -157,11 +154,8 @@
     <h2>Quick phrases <button id="savePhrase">+ Save text</button></h2>
     <div id="phrases" class="phrases"></div>
 
-    <h2>Recent</h2>
-    <div id="history" class="history"></div>
-
     <p class="help">Channel chips add a prefix; tap the selected one again to clear it. Phrases send at once with
-    the selected channel. Recent messages resend exactly as typed. "Enter" off types the text without submitting it.
+    the selected channel. "Enter" off types the text without submitting it.
     Edit adds or removes chips and phrases.</p>
   </section>
 
@@ -226,7 +220,7 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var msg = $("msg"), sendBtn = $("send"), enterBox = $("enter");
-  var state = { chips: [], phrases: [], history: [] };
+  var state = { chips: [], phrases: [] };
   var selected = load_("chip", "");
   var editing = false, busy = false, httpOk = null;
   enterBox.checked = load_("enter", "1") !== "0";
@@ -346,13 +340,6 @@
       ph.appendChild(b);
     });
 
-    var h = $("history"); h.textContent = "";
-    if (!state.history.length) h.appendChild(el("div", "empty", "Nothing sent yet."));
-    state.history.forEach(function (t) {
-      var b = el("button", "", t);
-      b.addEventListener("click", function () { send(t, true); });
-      h.appendChild(b);
-    });
     update();
   }
 
@@ -381,7 +368,6 @@
       if (r.ok) {
         httpOk = true;
         if (!fromShortcut) msg.value = "";
-        state.history = r.history || state.history;
         toast("Sent" + (r.replaced ? " (" + r.replaced + " replaced with ?)" : ""), "ok");
         render();
       } else {

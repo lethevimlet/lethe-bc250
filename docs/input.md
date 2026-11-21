@@ -27,8 +27,7 @@ brings it back for a second phone.
 ## Chat tab
 
 Type and send. The console presses Enter to open chat, types the text and presses Enter again. Channel
-chips add a prefix (`/g `, `/p `, ...), quick phrases send in one tap, and the last ten messages resend
-from the Recent list. **Edit** adds or removes chips and phrases; they are stored on the console.
+chips add a prefix (`/g `, `/p `, ...), and quick phrases send in one tap. **Edit** adds or removes chips and phrases; they are stored on the console.
 
 ## Touchpad tab
 

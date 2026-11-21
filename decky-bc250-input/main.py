@@ -36,8 +36,32 @@ class Plugin:
         if settings.get("enabled"):
             await self._start_server()
         decky.logger.info("BC-250 Input loaded")
+        # At boot the plugin can load before the port or /dev/uinput is usable: keep trying for a while
+        # so the phone page is there without opening the panel.
+        self._boot_retry = asyncio.create_task(self._retry_at_boot())
+
+    async def _retry_at_boot(self, tries: int = 24, every_s: float = 5.0):
+        for _ in range(tries):
+            s = self.core.settings
+            todo = (self.keyboard.fd is None
+                    or (s.get("pointer_enabled") and self.mouse.fd is None)
+                    or (s.get("enabled") and not self.server.running))
+            if not todo:
+                return
+            await asyncio.sleep(every_s)
+            if self.keyboard.fd is None:
+                await asyncio.to_thread(self._open_keyboard)
+            if s.get("pointer_enabled") and self.mouse.fd is None:
+                await asyncio.to_thread(self._open_mouse)
+            if s.get("enabled") and not self.server.running:
+                await self._start_server()
+                if self.server.running:
+                    decky.logger.info("HTTP server up after a retry")
 
     async def _unload(self):
+        task = getattr(self, "_boot_retry", None)
+        if task:
+            task.cancel()
         if self.server:
             await asyncio.to_thread(self.server.stop)
         if self.keyboard:

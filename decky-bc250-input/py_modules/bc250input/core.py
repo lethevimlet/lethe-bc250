@@ -14,7 +14,6 @@ from .settings import MAX_ITEM_LEN, MAX_LIST, Settings
 from .uinput import Typer
 
 MAX_CHARS = 255  # WoW chat message limit
-HISTORY_SIZE = 10
 
 Result = Tuple[int, Dict[str, Any]]
 
@@ -45,7 +44,6 @@ class InputCore:
         self.mouse = mouse
         self.typer = Typer(keyboard, sleep=sleep)
         self.limiter = RateLimiter(min_interval, clock=clock)
-        self.history: List[str] = []
         self.last_send: Optional[Dict[str, Any]] = None
         self.sends = 0
         self._busy = threading.Lock()
@@ -107,7 +105,6 @@ class InputCore:
             "ok": True,
             "chips": s["chips"],
             "phrases": s["phrases"],
-            "history": list(self.history),
             "maxChars": MAX_CHARS,
             "openKey": s["open_key"],
             "pointer": self.pointer_allowed(),
@@ -148,8 +145,7 @@ class InputCore:
                 self._record(ascii_text, replaced, False, f"{type(e).__name__}: {e}")
                 return 503, {"ok": False, "error": f"Typing failed on the console: {e}"}
             self._record(ascii_text, replaced, True, None, time.time() - started)
-            return 200, {"ok": True, "typed": ascii_text, "replaced": replaced,
-                         "history": list(self.history)}
+            return 200, {"ok": True, "typed": ascii_text, "replaced": replaced}
         finally:
             self._busy.release()
 
@@ -158,10 +154,6 @@ class InputCore:
         with self._state_lock:
             if ok:
                 self.sends += 1
-                if text in self.history:
-                    self.history.remove(text)
-                self.history.insert(0, text)
-                del self.history[HISTORY_SIZE:]
             self.last_send = {
                 "time": time.time(),
                 "chars": len(text),
