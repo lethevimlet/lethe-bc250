@@ -31,7 +31,7 @@ chips add a prefix (`/g `, `/p `, ...), and quick phrases send in one tap. **Edi
 
 **Live** skips the Send step: every key goes to the console as it is pressed, over the touchpad's live
 link, wherever the game's cursor is (a chat box you opened yourself, a name field, a search box). The
-phone's box shows only the caret and a count of typed characters, so the text is read on the TV. Deleting
+phone's box stays blank (no text, no caret) apart from a count of typed characters, so the text is read on the TV. Deleting
 on the phone deletes on the console, and an autocorrected or dictated word
 is rewritten there too. Return or the **Enter** button presses Enter and clears the box; Backspace in an
 empty box still presses Backspace. Chips, the chat-opening key and the 255-character limit do not apply

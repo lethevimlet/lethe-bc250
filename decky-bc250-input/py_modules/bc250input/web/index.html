@@ -70,8 +70,9 @@
   label.toggle input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
   .live .compose { border-color: var(--ok); }
   .live .prefix, .live #enterT { display: none; }
-  /* Live: the text stays in the box (autocorrect, dictation and Backspace need it) but is not shown. */
-  .live textarea { color: transparent; caret-color: var(--text); }
+  /* Live: the text stays in the box (autocorrect, dictation and Backspace need it) but is not shown,
+     nor is the caret walking along it; the "typed" count shows that keys are going out. */
+  .live textarea { color: transparent; caret-color: transparent; }
   .live textarea::selection { background: transparent; color: transparent; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 22px 0 8px;
     display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
