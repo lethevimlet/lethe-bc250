@@ -29,6 +29,15 @@ brings it back for a second phone.
 Type and send. The console presses Enter to open chat, types the text and presses Enter again. Channel
 chips add a prefix (`/g `, `/p `, ...), and quick phrases send in one tap. **Edit** adds or removes chips and phrases; they are stored on the console.
 
+**Live** skips the Send step: every key goes to the console as it is pressed, over the touchpad's live
+link, wherever the game's cursor is (a chat box you opened yourself, a name field, a search box). The
+phone's box shows only the caret and a count of typed characters, so the text is read on the TV. Deleting
+on the phone deletes on the console, and an autocorrected or dictated word
+is rewritten there too. Return or the **Enter** button presses Enter and clears the box; Backspace in an
+empty box still presses Backspace. Chips, the chat-opening key and the 255-character limit do not apply
+in Live mode, and the caret stays at the end of the box (editing the middle would put the two out of
+step). Quick phrases still send the usual way. The toggle is remembered on the phone.
+
 ## Touchpad tab
 
 | Gesture | Does |
@@ -78,7 +87,7 @@ What it does guard against is other web sites open on a phone in that network:
   so a site cannot point its own domain at the console (DNS rebinding) and talk to it as itself.
 
 What a phone can do: type text (one message a second, 255 characters, 8 KB bodies) followed by an
-optional Enter, press the named keys of the key row (no modifiers, so no shortcuts like Alt+F4), and,
+optional Enter, type live (backspaces and characters, at most 255 of each per command), press the named keys of the key row (no modifiers, so no shortcuts like Alt+F4), and,
 while **Mouse control** is on, move, click and scroll the mouse (about 800 commands a second at most).
 
 ## Limits

@@ -20,7 +20,8 @@ Port **8251**, no pairing (LAN / tailnet only; API calls carry the fixed header 
 
 The touchpad protocol (one WebSocket text frame can carry several commands, one per line):
 `m dx dy` move, `s v h` scroll in hi-res units (120 = one notch, v > 0 up), `b l|r|m 1|0` button,
-`c l|r|m` click, `k name` key tap, `p` keep-alive. The server answers with one
+`c l|r|m` click, `k name` key tap, `t n text` live typing (n backspaces, then the percent-encoded text,
+each capped at 255; the Chat tab's Live toggle), `p` keep-alive. The server answers with one
 `{"hello": 1, "pointer": bool}` and releases every button the session pressed when it ends.
 
 Build: `pnpm i && pnpm run build`, commit `dist/index.js` (not the lock file or `.map`).

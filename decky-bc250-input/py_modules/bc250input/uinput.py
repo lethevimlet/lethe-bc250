@@ -12,7 +12,7 @@ import threading
 import time
 from typing import Callable, Iterable, List, Optional
 
-from .keymap import ALL_KEYCODES, KEY_ENTER, KEY_LEFTSHIFT, KEY_SLASH, Stroke
+from .keymap import ALL_KEYCODES, KEY_BACKSPACE, KEY_ENTER, KEY_LEFTSHIFT, KEY_SLASH, Stroke
 
 EV_SYN = 0x00
 EV_KEY = 0x01
@@ -283,6 +283,24 @@ class Typer:
             return True
         finally:
             self.lock.release()
+
+    def type_live(self, backspaces: int, strokes: List[Stroke], delay_ms: float = 12) -> None:
+        """Live typing from the phone: delete what the phone deleted, then type what it added.
+        No chat opening and no Enter; waits for a message being typed so nothing is lost."""
+        delay = max(0.0, delay_ms) / 1000.0
+        with self.lock:
+            self.kb.open()
+            try:
+                for _ in range(backspaces):
+                    self._tap(KEY_BACKSPACE, False, delay)
+                for s in strokes:
+                    self._tap(s.code, s.shift, delay)
+            except Exception:
+                try:
+                    self.kb.key(KEY_LEFTSHIFT, False)
+                except Exception:
+                    pass
+                raise
 
     def type_message(self, strokes: List[Stroke], *, open_key: str = "enter", press_enter: bool = True,
                      key_delay_ms: float = 12, open_delay_ms: float = 120) -> None:

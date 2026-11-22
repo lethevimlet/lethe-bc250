@@ -68,6 +68,11 @@
   label.toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted);
     background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; }
   label.toggle input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+  .live .compose { border-color: var(--ok); }
+  .live .prefix, .live #enterT { display: none; }
+  /* Live: the text stays in the box (autocorrect, dictation and Backspace need it) but is not shown. */
+  .live textarea { color: transparent; caret-color: var(--text); }
+  .live textarea::selection { background: transparent; color: transparent; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 22px 0 8px;
     display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
   h2 button { min-height: 30px; padding: 3px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; }
@@ -143,11 +148,12 @@
       <div id="prefix" class="prefix"></div>
       <textarea id="msg" placeholder="Type or dictate a message…" enterkeyhint="send" autocapitalize="sentences"
                 autocomplete="off" spellcheck="true"></textarea>
-      <div class="meta"><span>Return sends. Close the console's quick menu first.</span><span id="count">0/255</span></div>
+      <div class="meta"><span id="hint">Return sends. Close the console's quick menu first.</span><span id="count">0/255</span></div>
       <div id="warn" class="warn"></div>
     </div>
     <div class="actions">
-      <label class="toggle"><input id="enter" type="checkbox" checked> Enter</label>
+      <label class="toggle"><input id="live" type="checkbox"> Live</label>
+      <label id="enterT" class="toggle"><input id="enter" type="checkbox" checked> Enter</label>
       <button id="send" class="send">Send</button>
     </div>
 
@@ -155,7 +161,8 @@
     <div id="phrases" class="phrases"></div>
 
     <p class="help">Channel chips add a prefix; tap the selected one again to clear it. Phrases send at once with
-    the selected channel. "Enter" off types the text without submitting it.
+    the selected channel. "Enter" off types the text without submitting it. "Live" types every key on the
+console as you press it (Return and the Enter button press Enter); chips are not added in Live mode.
     Edit adds or removes chips and phrases.</p>
   </section>
 
@@ -219,11 +226,14 @@
   if (location.search) try { history.replaceState(null, "", location.pathname); } catch (e) {}
 
   var $ = function (id) { return document.getElementById(id); };
-  var msg = $("msg"), sendBtn = $("send"), enterBox = $("enter");
+  var msg = $("msg"), sendBtn = $("send"), enterBox = $("enter"), liveBox = $("live");
   var state = { chips: [], phrases: [] };
   var selected = load_("chip", "");
   var editing = false, busy = false, httpOk = null;
+  var typed = "";   // Live mode: what the console has been sent since the box was last cleared (normalized)
   enterBox.checked = load_("enter", "1") !== "0";
+  liveBox.checked = load_("live", "0") === "1";
+  if (liveBox.checked) { msg.setAttribute("enterkeyhint", "enter"); msg.placeholder = "Type: keys go straight to the console"; }
 
   // ---------------------------------------------------------------- common
   function toast(text, kind) {
@@ -346,6 +356,17 @@
   function composed() { return normalize(selected + msg.value); }
 
   function update() {
+    var live = liveBox.checked;
+    document.body.classList.toggle("live", live);
+    $("hint").textContent = live ? (sockLive ? "Live: keys go to the console as you type." : "Live: waiting for the link…")
+      : "Return sends. Close the console's quick menu first.";
+    sendBtn.textContent = live ? "Enter" : "Send";
+    if (live) {
+      $("count").textContent = typed.length ? typed.length + " typed" : ""; $("count").className = "";
+      $("warn").style.display = "none";
+      sendBtn.disabled = !sockLive;
+      return;
+    }
     var n = composed();
     var len = n.text.trim().length;
     var c = $("count"); c.textContent = len + "/" + MAX; c.className = len > MAX ? "over" : "";
@@ -394,14 +415,61 @@
     });
   }
 
-  msg.addEventListener("input", update);
+  // ---- live typing: the box is mirrored on the console. Each change is sent as "delete what
+  // differs from the end, type the rest", which also covers autocorrect and dictation rewriting a word.
+  function liveSync() {
+    var v = msg.value, enter = v.indexOf("\n") >= 0 || v.indexOf("\r") >= 0;
+    if (enter) v = v.split(/[\r\n]/)[0];
+    var now = normalize(v).text, i = 0;
+    while (i < typed.length && i < now.length && typed[i] === now[i]) i++;
+    var back = typed.length - i, add = now.slice(i);
+    // The console takes at most 255 backspaces or characters per command.
+    for (; back > 0; back -= 255) cmd("t " + Math.min(back, 255) + " ");
+    for (var k = 0; k < add.length; k += 200) cmd("t 0 " + encodeURIComponent(add.slice(k, k + 200)));
+    typed = now;
+    if (enter) liveEnter();
+    update();
+  }
+  function liveEnter() { cmd("k enter"); msg.value = ""; typed = ""; update(); }
+  function liveOk() {
+    if (sock && sockLive) return true;
+    toast("No live link to the console yet", "err"); return false;
+  }
+  function setLive(on) {
+    liveBox.checked = on; save_("live", on ? "1" : "0");
+    msg.value = ""; typed = "";   // start from an empty box so the mirror matches the console
+    msg.setAttribute("enterkeyhint", on ? "enter" : "send");
+    msg.placeholder = on ? "Type: keys go straight to the console" : "Type or dictate a message…";
+    update(); msg.focus();
+  }
+
+  msg.addEventListener("input", function () {
+    if (!liveBox.checked) { update(); return; }
+    if (!liveOk()) { msg.value = typed; return; }
+    liveSync();
+  });
   msg.addEventListener("keydown", function (e) {
+    if (liveBox.checked) {
+      if (e.isComposing) return;
+      if (e.key === "Enter") { e.preventDefault(); if (liveOk()) liveEnter(); }
+      // Backspace in an empty box changes nothing on the phone, so press it on the console directly.
+      else if (e.key === "Backspace" && !msg.value && liveOk()) cmd("k backspace");
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       if (!sendBtn.disabled) send(selected + msg.value, false);
     }
   });
-  sendBtn.addEventListener("click", function () { send(selected + msg.value, false); });
+  // Typing in the middle would desync the mirror: keep the caret at the end in Live mode.
+  msg.addEventListener("select", function () {
+    if (liveBox.checked && msg.selectionStart !== msg.value.length) msg.setSelectionRange(msg.value.length, msg.value.length);
+  });
+  sendBtn.addEventListener("click", function () {
+    if (liveBox.checked) { if (liveOk()) liveEnter(); msg.focus(); }
+    else send(selected + msg.value, false);
+  });
+  liveBox.addEventListener("change", function () { setLive(liveBox.checked); });
   enterBox.addEventListener("change", function () { save_("enter", enterBox.checked ? "1" : "0"); });
   $("editBtn").addEventListener("click", function () { editing = !editing; render(); });
   $("savePhrase").addEventListener("click", function () {
@@ -422,12 +490,12 @@
     s.onmessage = function (m) {
       try {
         var j = JSON.parse(m.data);
-        if (j.hello) { sockLive = true; retry = 0; setPointer(j.pointer); setConn(); }
+        if (j.hello) { sockLive = true; retry = 0; setPointer(j.pointer); setConn(); update(); }
       } catch (e) {}
     };
     s.onclose = function () {
       if (sock !== s) return;
-      sock = null; sockLive = false; setConn();
+      sock = null; sockLive = false; setConn(); update();
       if (!document.hidden) retryTimer = setTimeout(connect, Math.min(5000, 400 * Math.pow(2, retry++)));
     };
   }
@@ -449,7 +517,9 @@
     rafOn = false;
     takeMotion();
     if (!queue.length) return;
-    if (sock && sockLive && sock.bufferedAmount < 4096) sock.send(queue.join("\n"));
+    // Live typing must never be dropped (the console would lose sync); motion may be.
+    var keep = queue.some(function (c) { return c[0] === "t" || c[0] === "k"; });
+    if (sock && sockLive && (keep || sock.bufferedAmount < 4096)) sock.send(queue.join("\n"));
     queue = [];
   }
   function schedule() { if (!rafOn) { rafOn = true; requestAnimationFrame(flush); } }

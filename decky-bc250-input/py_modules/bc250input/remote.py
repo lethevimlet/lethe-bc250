@@ -6,6 +6,7 @@ Protocol (text frames, commands separated by newlines, fields by spaces):
   b l|r|m 1|0 button down / up
   c l|r|m     click
   k name      tap a key from keymap.NAMED_KEYS
+  t n text    live typing: n backspaces, then text (percent-encoded, may be empty)
   p           keep-alive
 Pointer commands are ignored unless mouse control is on. Every button is released when the
 connection ends, however it ends.
@@ -15,13 +16,15 @@ from __future__ import annotations
 
 import time
 from typing import Callable, List
+from urllib.parse import unquote
 
-from .keymap import NAMED_KEYS
+from .keymap import NAMED_KEYS, normalize_text, text_to_strokes
 from .uinput import BUTTONS
 
 MAX_MOVE = 2000
 MAX_SCROLL = 2400
 MAX_COMMANDS_PER_S = 800
+MAX_LIVE = 255  # characters or backspaces in one live-typing command
 
 
 def _int(s: str, lim: int) -> int:
@@ -66,6 +69,13 @@ class RemoteSession:
         if op == "k":
             code = NAMED_KEYS[p[1]]
             self.core.typer.tap_key(code, self.core.settings.get("key_delay_ms"))
+            return
+        if op == "t":
+            back = max(0, min(MAX_LIVE, int(p[1])))
+            text, _ = normalize_text(unquote(p[2]) if len(p) > 2 else "")
+            strokes = text_to_strokes(text[:MAX_LIVE])
+            if back or strokes:
+                self.core.typer.type_live(back, strokes, self.core.settings.get("key_delay_ms"))
             return
         if not self.pointer:
             return
