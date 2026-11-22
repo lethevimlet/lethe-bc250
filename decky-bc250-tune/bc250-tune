@@ -27,7 +27,7 @@ set -uo pipefail
 unset LD_LIBRARY_PATH LD_PRELOAD PYTHONHOME PYTHONPATH
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-VERSION="1.4.5"
+VERSION="1.4.6"
 CONF_DIR=/etc/bc250-tune
 CONF="$CONF_DIR/config"
 STATE_DIR=/run/bc250-tune
@@ -127,7 +127,8 @@ hwmon_by_name() { for h in /sys/class/hwmon/hwmon*; do [ "$(cat "$h/name" 2>/dev
 # ---------------------------------------------------------------------------------------------
 # UMA (VRAM/RAM split) — CMOS via bc250memcfg
 # ---------------------------------------------------------------------------------------------
-uma_cmos() { is_root && [ -x "$MEMCFG" ] && "$MEMCFG" 2>/dev/null | sed -n 's/^UMA_SIZE=//p' | head -1; }
+# bc250memcfg zero-pads (UMA_SIZE=0512): strip that, or "0512" != "512" and the JSON status is invalid.
+uma_cmos() { is_root && [ -x "$MEMCFG" ] && "$MEMCFG" 2>/dev/null | sed -n 's/^UMA_SIZE=0*\([0-9]\)/\1/p' | head -1; }
 uma_live_mb() { local b; b=$(cat "$GPU_PCI"/mem_info_vram_total 2>/dev/null || cat /sys/class/drm/card*/device/mem_info_vram_total 2>/dev/null | head -1); echo $(( ${b:-0} / 1048576 )); }
 
 build_memcfg() {
